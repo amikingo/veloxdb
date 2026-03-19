@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -154,18 +153,7 @@ function App() {
       ? schemaQuery.error.message
       : 'Failed to load table schema'
 
-  const filteredTables = useMemo(() => {
-    const source = tablesQuery.data ?? []
-    const needle = tableSearch.trim().toLowerCase()
-
-    if (!needle) {
-      return source
-    }
-
-    return source.filter((table) =>
-      `${table.schema}.${table.name}`.toLowerCase().includes(needle),
-    )
-  }, [tableSearch, tablesQuery.data])
+  const tablesForUi = tablesQuery.data ?? []
 
   const handleRunQuery = (nextQuery?: string) => {
     if (!connection?.id) {
@@ -294,7 +282,7 @@ function App() {
                 <ConnectionsSidebarTree
                   activeConnection={connection}
                   connections={connectionsQuery.data ?? []}
-                  tables={filteredTables}
+                  tables={tablesForUi}
                   tablesErrorMessage={tablesQuery.isError ? tablesErrorMessage : undefined}
                   selectedTable={selectedTable}
                   search={tableSearch}
@@ -488,7 +476,7 @@ function App() {
       <CommandPalette
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
-        tables={filteredTables}
+        tables={tablesForUi}
         hasLastQuery={Boolean(lastQuery)}
         onOpenConnection={() => setConnectionDialogOpen(true)}
         onRunLastQuery={() => {

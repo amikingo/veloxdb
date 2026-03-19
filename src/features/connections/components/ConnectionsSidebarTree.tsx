@@ -1,5 +1,13 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react'
 import {
   CaretDownIcon,
   CaretRightIcon,
@@ -14,6 +22,7 @@ import type { ConnectionSummary, TableInfo } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { TreeView, type TreeDataItem, type TreeRenderItemParams } from '@/components/ui/tree-view'
 import { useTableSchemaQuery } from '@/features/schema/queries'
 
 type ConnectionContextMenuTarget = {
@@ -25,11 +34,85 @@ type TableContextMenuTarget = {
   kind: 'table'
   connectionId: string
   table: TableInfo
-  tableKey: string
-  isExpanded: boolean
+  onToggleExpanded?: () => void
+  isExpanded?: boolean
 }
 
 type SidebarContextMenuTarget = ConnectionContextMenuTarget | TableContextMenuTarget
+
+type TableSearchNeedles = {
+  fullNeedleLower: string
+  schemaNeedleLower: string
+  tableNeedleLower: string
+}
+
+function getTableSearchNeedles(search: string): TableSearchNeedles {
+  const fullNeedleLower = search.trim().toLowerCase()
+
+  const dotIndex = fullNeedleLower.indexOf('.')
+  if (dotIndex === -1) {
+    return {
+      fullNeedleLower,
+      schemaNeedleLower: fullNeedleLower,
+      tableNeedleLower: fullNeedleLower,
+    }
+  }
+
+  return {
+    fullNeedleLower,
+    schemaNeedleLower: fullNeedleLower.slice(0, dotIndex),
+    tableNeedleLower: fullNeedleLower.slice(dotIndex + 1),
+  }
+}
+
+function highlightText(text: string, needleLower: string): ReactNode {
+  if (!needleLower) return text
+
+  const lower = text.toLowerCase()
+  const parts: ReactNode[] = []
+
+  let start = 0
+  let keyIndex = 0
+
+  while (true) {
+    const idx = lower.indexOf(needleLower, start)
+    if (idx === -1) break
+
+    if (idx > start) {
+      parts.push(text.slice(start, idx))
+    }
+
+    const match = text.slice(idx, idx + needleLower.length)
+    parts.push(
+      <span
+        key={`h-${keyIndex++}`}
+        className="rounded-[2px] bg-sidebar-accent px-0.5 text-sidebar-accent-foreground"
+      >
+        {match}
+      </span>,
+    )
+
+    start = idx + needleLower.length
+  }
+
+  if (start < text.length) {
+    parts.push(text.slice(start))
+  }
+
+  return <>{parts}</>
+}
+
+function isConnectionContextMenuTarget(
+  target: SidebarContextMenuTarget,
+): target is ConnectionContextMenuTarget {
+  return target.kind === 'connection'
+}
+
+function isTableContextMenuTarget(
+  target: SidebarContextMenuTarget,
+): target is TableContextMenuTarget {
+  return target.kind === 'table'
+}
 
 type ConnectionsSidebarTreeProps = {
   activeConnection: ConnectionSummary | null
@@ -52,8 +135,11 @@ type ConnectionsSidebarTreeProps = {
 type TableTreeItemProps = {
   connectionId: string
   table: TableInfo
+  level: number
   isExpanded: boolean
   isSelected: boolean
+  highlightSchemaNeedleLower: string
+  highlightTableNeedleLower: string
   onSelectTable: (table: TableInfo) => void
   onToggleExpanded: () => void
   onOpenContextMenu: (
@@ -68,8 +154,11 @@ const EMPTY_TABLES: TableInfo[] = []
 const TableTreeItem = memo(function TableTreeItem({
   connectionId,
   table,
+  level,
   isExpanded,
   isSelected,
+  highlightSchemaNeedleLower,
+  highlightTableNeedleLower,
   onSelectTable,
   onToggleExpanded,
   onOpenContextMenu,
@@ -97,11 +186,11 @@ const TableTreeItem = memo(function TableTreeItem({
     schemaQuery.error instanceof Error ? schemaQuery.error.message : 'Failed to load fields'
 
   return (
-    <div className="border-b border-sidebar-border/60">
+    <div className="py-0.5">
       <div className="flex min-w-0 items-center">
         <button
           type="button"
-          className="flex h-9 w-8 shrink-0 items-center justify-center text-sidebar-foreground/70 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="flex h-8 w-7 shrink-0 items-center justify-center text-sidebar-foreground/70 transition hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground"
           onClick={onToggleExpanded}
           aria-label={isExpanded ? 'Collapse table fields' : 'Expand table fields'}
         >
@@ -111,9 +200,10 @@ const TableTreeItem = memo(function TableTreeItem({
         <button
           type="button"
           className={cn(
-            'flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left text-xs transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+            'flex h-8 min-w-0 flex-1 items-center gap-2 rounded-sm px-2 text-left text-xs transition hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground',
             isSelected && 'bg-sidebar-accent text-sidebar-accent-foreground',
           )}
+          style={{ paddingLeft: `${8 + level * 14}px` }}
           onClick={(event) => {
             // Delay selection slightly to avoid running previews on double-click.
             if (event.detail > 1) {
@@ -129,59 +219,64 @@ const TableTreeItem = memo(function TableTreeItem({
           }}
           onContextMenu={(event) => {
             cancelPendingSelect()
-            const tableKey = `${connectionId}:${table.schema}.${table.name}`
             onOpenContextMenu(event, {
               kind: 'table',
               connectionId,
               table,
-              tableKey,
+              onToggleExpanded,
               isExpanded,
             })
           }}
           onDoubleClick={(event) => {
             cancelPendingSelect()
-            const tableKey = `${connectionId}:${table.schema}.${table.name}`
             onOpenContextMenu(event, {
               kind: 'table',
               connectionId,
               table,
-              tableKey,
+              onToggleExpanded,
               isExpanded,
             })
           }}
         >
           <DatabaseIcon className="size-3.5 shrink-0 text-sidebar-foreground/60" />
           <div className="min-w-0">
-            <p className="truncate font-medium">{table.name}</p>
-            <p className="truncate text-[11px] text-sidebar-foreground/60">{table.schema}</p>
+            <p className="truncate font-medium">
+              {highlightText(table.name, highlightTableNeedleLower)}
+            </p>
+            <p className="truncate text-[11px] text-sidebar-foreground/60">
+              {highlightText(table.schema, highlightSchemaNeedleLower)}
+            </p>
           </div>
         </button>
       </div>
 
       {isExpanded ? (
-        <div className="border-t border-sidebar-border/60 bg-sidebar/60 px-3 py-2">
+        <div className="ml-8 mr-2 border-l border-sidebar-border/60 pl-3 py-1.5">
           {schemaQuery.isLoading ? (
-            <div className="flex items-center gap-2 text-[11px] text-sidebar-foreground/60">
+            <div className="flex items-center gap-2 py-1 text-[11px] text-sidebar-foreground/60">
               <SpinnerGapIcon className="size-3 animate-spin" />
               Loading fields...
             </div>
           ) : null}
 
           {schemaQuery.isError ? (
-            <div className="text-[11px] text-destructive">{errorMessage}</div>
+            <div className="py-1 text-[11px] text-destructive">{errorMessage}</div>
           ) : null}
 
           {schemaQuery.data?.length ? (
-            <div className="max-h-[150px] overflow-auto pr-1 space-y-1">
+            <div className="max-h-[170px] space-y-1 overflow-auto pr-1">
               {schemaQuery.data.map((column) => (
                 <div
                   key={`${column.tableSchema}.${column.tableName}.${column.columnName}`}
-                  className="rounded-none border border-sidebar-border/60 bg-background/70 px-2 py-1.5 text-[11px]"
+                  className="grid grid-cols-[10px_minmax(0,1fr)] items-start gap-2 rounded-sm px-1 py-1 text-[11px]"
                 >
-                  <div className="truncate text-sidebar-foreground">{column.columnName}</div>
-                  <div className="truncate text-sidebar-foreground/60">
-                    {column.dataType}
-                    {column.isNullable ? ' nullable' : ' not null'}
+                  <span className="mt-[5px] size-1.5 rounded-full bg-sidebar-foreground/45" />
+                  <div className="min-w-0">
+                    <div className="truncate text-sidebar-foreground">{column.columnName}</div>
+                    <div className="truncate text-sidebar-foreground/60">
+                      {column.dataType}
+                      {column.isNullable ? ' nullable' : ' not null'}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -189,7 +284,7 @@ const TableTreeItem = memo(function TableTreeItem({
           ) : null}
 
           {schemaQuery.data && schemaQuery.data.length === 0 ? (
-            <div className="text-[11px] text-sidebar-foreground/60">
+            <div className="py-1 text-[11px] text-sidebar-foreground/60">
               No fields were returned for this table.
             </div>
           ) : null}
@@ -216,7 +311,8 @@ export function ConnectionsSidebarTree({
   onOpenTableProperties,
   onToggleCollapsed,
 }: ConnectionsSidebarTreeProps) {
-  const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({})
+  void onOpenTableProperties
+
   const [isTablesPanelExpanded, setIsTablesPanelExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -225,18 +321,42 @@ export function ConnectionsSidebarTree({
   } | null>(null)
   const contextMenuRef = useRef<HTMLDivElement | null>(null)
   const pendingSelectTimeoutRef = useRef<number | null>(null)
-  const tableParentRef = useRef<HTMLDivElement | null>(null)
   const activeConnectionId = activeConnection?.id ?? null
   const activeTableKey =
     activeConnectionId && selectedTable
       ? `${activeConnectionId}:${selectedTable.schema}.${selectedTable.name}`
       : null
 
-  useEffect(() => {
-    // When switching connections, open the tables panel by default.
-    if (activeConnectionId == null) return
-    setIsTablesPanelExpanded(true)
-  }, [activeConnectionId])
+  const { fullNeedleLower, schemaNeedleLower, tableNeedleLower } = useMemo(
+    () => getTableSearchNeedles(search),
+    [search],
+  )
+  const isSearching = Boolean(fullNeedleLower)
+
+  const tablesWithSearchKeyLower = useMemo(
+    () =>
+      tables.map((table) => ({
+        table,
+        searchKeyLower: `${table.schema}.${table.name}`.toLowerCase(),
+      })),
+    [tables],
+  )
+
+  const filteredTablesWithKeys = useMemo(() => {
+    if (!fullNeedleLower) return tablesWithSearchKeyLower
+
+    return tablesWithSearchKeyLower.filter((entry) => entry.searchKeyLower.includes(fullNeedleLower))
+  }, [fullNeedleLower, tablesWithSearchKeyLower])
+
+  const tableTreeData = useMemo<TreeDataItem[]>(
+    () =>
+      filteredTablesWithKeys.map((entry) => ({
+        id: `table:${entry.table.schema}.${entry.table.name}`,
+        name: `${entry.table.schema}.${entry.table.name}`,
+        data: entry.table,
+      })),
+    [filteredTablesWithKeys],
+  )
 
   const openSidebarContextMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>, target: SidebarContextMenuTarget) => {
@@ -308,6 +428,7 @@ export function ConnectionsSidebarTree({
     (connection: ConnectionSummary) => {
       cancelPendingSelect()
       pendingSelectTimeoutRef.current = window.setTimeout(() => {
+        setIsTablesPanelExpanded(true)
         onSelectConnection(connection)
         pendingSelectTimeoutRef.current = null
       }, 250)
@@ -315,12 +436,83 @@ export function ConnectionsSidebarTree({
     [cancelPendingSelect, onSelectConnection],
   )
 
-  const rowVirtualizer = useVirtualizer({
-    count: tables.length,
-    getScrollElement: () => tableParentRef.current,
-    estimateSize: () => 40,
-    overscan: 8,
-  })
+  const connectionContextMenuTarget =
+    contextMenu && isConnectionContextMenuTarget(contextMenu.target) ? contextMenu.target : null
+
+  const tableContextMenuTarget =
+    contextMenu && isTableContextMenuTarget(contextMenu.target) ? contextMenu.target : null
+
+  const renderTablesPanelForConnection = (connection: ConnectionSummary) => {
+    if (!isTablesPanelExpanded) return null
+
+    return (
+      <div className="ml-6 mr-2 border-l border-sidebar-border/60 pl-3">
+        <div className="py-2 pr-1">
+          <div className="relative">
+            <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-sidebar-foreground/50" />
+            <Input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Search tables"
+              className="border-sidebar-border bg-background/70 pl-8"
+            />
+          </div>
+        </div>
+
+        {tablesErrorMessage ? (
+          <div className="px-3 py-4 text-xs text-destructive">{tablesErrorMessage}</div>
+        ) : (
+          <>
+            {!isTablesLoading && filteredTablesWithKeys.length === 0 ? (
+              <div className="px-3 py-4 text-xs text-sidebar-foreground/60">
+                {isSearching
+                  ? 'No tables match the current filter.'
+                  : 'No tables were found for this connection.'}
+              </div>
+            ) : null}
+
+            {isTablesLoading ? (
+              <div className="flex items-center gap-2 px-3 py-4 text-xs text-sidebar-foreground/60">
+                <SpinnerGapIcon className="size-4 animate-spin" />
+                Loading tables...
+              </div>
+            ) : null}
+
+            {!isTablesLoading && filteredTablesWithKeys.length > 0 ? (
+              <div className="max-h-[55vh] overflow-auto py-1 pr-1">
+                <TreeView
+                  data={tableTreeData}
+                  renderItem={(params: TreeRenderItemParams) => {
+                    const table = params.item.data as TableInfo | undefined
+                    if (!table) return null
+
+                    const tableKey = `${connection.id}:${table.schema}.${table.name}`
+                    return (
+                      <TableTreeItem
+                        connectionId={connection.id}
+                        table={table}
+                        level={params.level}
+                        isExpanded={params.isExpanded}
+                        isSelected={activeTableKey === tableKey}
+                        highlightSchemaNeedleLower={schemaNeedleLower}
+                        highlightTableNeedleLower={tableNeedleLower}
+                        onSelectTable={() => {
+                          params.select()
+                          onSelectTable(table)
+                        }}
+                        onToggleExpanded={params.toggle}
+                        onOpenContextMenu={(event, target) => openSidebarContextMenu(event, target)}
+                      />
+                    )
+                  }}
+                />
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <aside className="flex h-full flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
@@ -363,38 +555,46 @@ export function ConnectionsSidebarTree({
             role="menu"
             aria-label="Sidebar context menu"
           >
-            {contextMenu.target.kind === 'connection' ? (
+            {connectionContextMenuTarget ? (
               <button
                 type="button"
                 className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-60"
                 onClick={() => {
-                  const isActive = activeConnectionId === contextMenu.target.connection.id
+                  const isActive =
+                    activeConnectionId === connectionContextMenuTarget.connection.id
                   if (isActive) {
-                    setIsTablesPanelExpanded((prev) => !prev)
+                    if (isSearching) {
+                      setIsTablesPanelExpanded(true)
+                    } else {
+                      setIsTablesPanelExpanded((prev) => !prev)
+                    }
                   } else {
-                    onSelectConnection(contextMenu.target.connection)
+                    setIsTablesPanelExpanded(true)
+                    onSelectConnection(connectionContextMenuTarget.connection)
                   }
                   setContextMenu(null)
                 }}
                 disabled={isActivatingConnection}
               >
                 <span>
-                  {activeConnectionId === contextMenu.target.connection.id
+                  {activeConnectionId === connectionContextMenuTarget.connection.id
                     ? isTablesPanelExpanded
-                      ? 'Collapse tables'
+                      ? isSearching
+                        ? 'Tables expanded (search)'
+                        : 'Collapse tables'
                       : 'Expand tables'
                     : 'Activate connection'}
                 </span>
               </button>
             ) : null}
 
-            {contextMenu.target.kind === 'table' ? (
+            {tableContextMenuTarget ? (
               <>
                 <button
                   type="button"
                   className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   onClick={() => {
-                    onSelectTable(contextMenu.target.table)
+                    onSelectTable(tableContextMenuTarget.table)
                     setContextMenu(null)
                   }}
                 >
@@ -405,25 +605,11 @@ export function ConnectionsSidebarTree({
                   type="button"
                   className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   onClick={() => {
-                    setExpandedTables((current) => ({
-                      ...current,
-                      [contextMenu.target.tableKey]: !current[contextMenu.target.tableKey],
-                    }))
+                    tableContextMenuTarget.onToggleExpanded?.()
                     setContextMenu(null)
                   }}
                 >
-                  <span>{contextMenu.target.isExpanded ? 'Hide fields' : 'Show fields'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    onOpenTableProperties(contextMenu.target.connectionId, contextMenu.target.table)
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>View table properties</span>
+                  <span>{tableContextMenuTarget.isExpanded ? 'Hide fields' : 'Show fields'}</span>
                 </button>
               </>
             ) : null}
@@ -454,7 +640,7 @@ export function ConnectionsSidebarTree({
                   <button
                     type="button"
                     className={cn(
-                      'flex w-full items-start gap-2 px-3 py-3 text-left text-xs transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                      'flex w-full items-start gap-2 px-3 py-2.5 text-left text-xs transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                       isActive && 'bg-sidebar-accent text-sidebar-accent-foreground',
                     )}
                     onClick={(event) => {
@@ -468,7 +654,11 @@ export function ConnectionsSidebarTree({
 
                       if (isActive) {
                         cancelPendingSelect()
-                        setIsTablesPanelExpanded((prev) => !prev)
+                        if (isSearching) {
+                          setIsTablesPanelExpanded(true)
+                        } else {
+                          setIsTablesPanelExpanded((prev) => !prev)
+                        }
                       } else {
                         scheduleSelectConnection(connection)
                       }
@@ -497,100 +687,15 @@ export function ConnectionsSidebarTree({
                       <div className="flex items-center gap-2">
                         <p className="truncate font-medium">{connection.name}</p>
                         {isActive ? (
-                          <span className="shrink-0 border border-sidebar-border/80 px-1 py-0.5 text-[10px] uppercase tracking-[0.18em] text-sidebar-foreground/60">
+                          <span className="shrink-0 border border-sidebar-border/80 bg-sidebar-primary px-1 py-0.5 text-[10px] uppercase tracking-[0.18em] text-sidebar-primary-foreground">
                             Active
                           </span>
                         ) : null}
                       </div>
-                      <p className="truncate pt-1 text-[11px] text-sidebar-foreground/60">
-                        {connection.database} on {connection.host}:{connection.port}
-                      </p>
                     </div>
                   </button>
 
-                  {isActive && isTablesPanelExpanded ? (
-                    <div className="border-t border-sidebar-border/60 bg-sidebar/70">
-                      <div className="border-b border-sidebar-border/60 p-3">
-                        <div className="relative">
-                          <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-sidebar-foreground/50" />
-                          <Input
-                            value={search}
-                            onChange={(event) => onSearchChange(event.target.value)}
-                            placeholder="Search tables"
-                            className="border-sidebar-border bg-background/70 pl-8"
-                          />
-                        </div>
-                      </div>
-
-                      {tablesErrorMessage ? (
-                        <div className="px-3 py-4 text-xs text-destructive">{tablesErrorMessage}</div>
-                      ) : (
-                        <>
-                          {!isTablesLoading && tables.length === 0 ? (
-                            <div className="px-3 py-4 text-xs text-sidebar-foreground/60">
-                              {search
-                                ? 'No tables match the current filter.'
-                                : 'No tables were found for this connection.'}
-                            </div>
-                          ) : null}
-
-                          {isTablesLoading ? (
-                            <div className="flex items-center gap-2 px-3 py-4 text-xs text-sidebar-foreground/60">
-                              <SpinnerGapIcon className="size-4 animate-spin" />
-                              Loading tables...
-                            </div>
-                          ) : null}
-
-                          {!isTablesLoading && tables.length > 0 ? (
-                            <div ref={tableParentRef} className="max-h-[55vh] overflow-auto">
-                              <div
-                                className="relative w-full"
-                                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-                              >
-                                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                                  const table = tables[virtualRow.index]
-                                  if (!table) {
-                                    return null
-                                  }
-                                  const tableKey = `${connection.id}:${table.schema}.${table.name}`
-                                  const isExpanded = Boolean(expandedTables[tableKey])
-
-                                  return (
-                                    <div
-                                      key={tableKey}
-                                      ref={rowVirtualizer.measureElement}
-                                      data-index={virtualRow.index}
-                                      className="absolute left-0 top-0 w-full"
-                                      style={{
-                                        transform: `translateY(${virtualRow.start}px)`,
-                                      }}
-                                    >
-                                      <TableTreeItem
-                                        connectionId={connection.id}
-                                        table={table}
-                                        isExpanded={isExpanded}
-                                        isSelected={activeTableKey === tableKey}
-                                        onSelectTable={onSelectTable}
-                                        onToggleExpanded={() =>
-                                          setExpandedTables((current) => ({
-                                            ...current,
-                                            [tableKey]: !current[tableKey],
-                                          }))
-                                        }
-                                        onOpenContextMenu={(event, target) =>
-                                          openSidebarContextMenu(event, target)
-                                        }
-                                      />
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            </div>
-                          ) : null}
-                        </>
-                      )}
-                    </div>
-                  ) : null}
+                  {isActive ? renderTablesPanelForConnection(connection) : null}
                 </div>
               )
             })}

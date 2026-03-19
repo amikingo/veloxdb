@@ -1,10 +1,4 @@
 import { useMemo, useRef } from 'react'
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-} from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
 import type { QueryResult } from '@/data/types'
@@ -30,30 +24,9 @@ export function ResultsGrid({ result, isPending = false }: ResultsGridProps) {
   const parentRef = useRef<HTMLDivElement | null>(null)
 
   const data = result?.rows ?? []
-  const columns = useMemo<ColumnDef<Record<string, string | null>>[]>(
-    () =>
-      (result?.columns ?? []).map((columnName) => ({
-        accessorKey: columnName,
-        header: columnName,
-        cell: ({ getValue }) => (
-          <span className={getValue() === null ? 'text-muted-foreground' : ''}>
-            {formatValue(getValue<string | null>())}
-          </span>
-        ),
-      })),
-    [result],
-  )
-
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
-    data,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  })
-
-  const rows = table.getRowModel().rows
+  const columns = useMemo(() => result?.columns ?? [], [result])
   const rowVirtualizer = useVirtualizer({
-    count: rows.length,
+    count: data.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 36,
     overscan: 10,
@@ -91,16 +64,13 @@ export function ResultsGrid({ result, isPending = false }: ResultsGridProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div
-        className="grid border-b border-border bg-muted/30"
-        style={{ gridTemplateColumns: templateColumns }}
-      >
-        {table.getFlatHeaders().map((header) => (
+      <div className="grid border-b border-border bg-muted/30" style={{ gridTemplateColumns: templateColumns }}>
+        {columns.map((columnName) => (
           <div
-            key={header.id}
+            key={columnName}
             className="truncate border-r border-border px-3 py-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground last:border-r-0"
           >
-            {flexRender(header.column.columnDef.header, header.getContext())}
+            {columnName}
           </div>
         ))}
       </div>
@@ -111,11 +81,12 @@ export function ResultsGrid({ result, isPending = false }: ResultsGridProps) {
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-            const row = rows[virtualRow.index]
+            const row = data[virtualRow.index]
+            if (!row) return null
 
             return (
               <div
-                key={row.id}
+                key={virtualRow.index}
                 className="absolute left-0 top-0 grid w-full border-b border-border/60 bg-background text-xs"
                 style={{
                   height: `${virtualRow.size}px`,
@@ -123,13 +94,15 @@ export function ResultsGrid({ result, isPending = false }: ResultsGridProps) {
                   gridTemplateColumns: templateColumns,
                 }}
               >
-                {row.getVisibleCells().map((cell) => (
+                {columns.map((columnName) => (
                   <div
-                    key={cell.id}
+                    key={columnName}
                     className="truncate border-r border-border/60 px-3 py-2 last:border-r-0"
-                    title={formatValue(cell.getValue<string | null>())}
+                    title={formatValue(row[columnName])}
                   >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    <span className={row[columnName] === null ? 'text-muted-foreground' : ''}>
+                      {formatValue(row[columnName])}
+                    </span>
                   </div>
                 ))}
               </div>

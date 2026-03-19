@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { SpinnerGapIcon, CheckIcon } from '@phosphor-icons/react'
 
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -61,17 +61,21 @@ export function TablePropertiesDialog({
 
   const columns = propertiesQuery.data ?? []
 
-  const [draft, setDraft] = useState<Record<string, DraftColumn>>({})
+  const tableKey = table ? `${table.schema}.${table.name}` : '__no_table__'
+  const [overridesByTableKey, setOverridesByTableKey] = useState<
+    Record<string, Record<string, DraftColumn>>
+  >({})
 
-  useEffect(() => {
-    if (!propertiesQuery.data) return
+  const draft = useMemo(() => {
+    const base: Record<string, DraftColumn> = {}
 
-    const next: Record<string, DraftColumn> = {}
-    for (const col of propertiesQuery.data) {
-      next[col.columnName] = { isNullable: col.isNullable, isUnique: col.isUnique }
+    for (const col of propertiesQuery.data ?? []) {
+      base[col.columnName] = { isNullable: col.isNullable, isUnique: col.isUnique }
     }
-    setDraft(next)
-  }, [propertiesQuery.data])
+
+    const overrides = overridesByTableKey[tableKey] ?? {}
+    return { ...base, ...overrides }
+  }, [propertiesQuery.data, overridesByTableKey, tableKey])
 
   const targetTableLabel = table ? `${table.schema}.${table.name}` : '—'
 
@@ -143,10 +147,22 @@ export function TablePropertiesDialog({
                           checked={d.isNullable}
                           disabled={nullableDisabled}
                           onClick={() =>
-                            setDraft((current) => ({
-                              ...current,
-                              [col.columnName]: { ...d, isNullable: !d.isNullable },
-                            }))
+                            setOverridesByTableKey((current) => {
+                              const prev = current[tableKey] ?? {}
+                              const nextIsNullable = !d.isNullable
+                              const next: DraftColumn = { isNullable: nextIsNullable, isUnique: d.isUnique }
+
+                              const matchesServer =
+                                next.isNullable === col.isNullable && next.isUnique === col.isUnique
+
+                              if (matchesServer) {
+                                const rest = { ...prev }
+                                delete rest[col.columnName]
+                                return { ...current, [tableKey]: rest }
+                              }
+
+                              return { ...current, [tableKey]: { ...prev, [col.columnName]: next } }
+                            })
                           }
                         />
                       </div>
@@ -157,10 +173,22 @@ export function TablePropertiesDialog({
                           checked={d.isUnique}
                           disabled={uniqueDisabled}
                           onClick={() =>
-                            setDraft((current) => ({
-                              ...current,
-                              [col.columnName]: { ...d, isUnique: !d.isUnique },
-                            }))
+                            setOverridesByTableKey((current) => {
+                              const prev = current[tableKey] ?? {}
+                              const nextIsUnique = !d.isUnique
+                              const next: DraftColumn = { isNullable: d.isNullable, isUnique: nextIsUnique }
+
+                              const matchesServer =
+                                next.isNullable === col.isNullable && next.isUnique === col.isUnique
+
+                              if (matchesServer) {
+                                const rest = { ...prev }
+                                delete rest[col.columnName]
+                                return { ...current, [tableKey]: rest }
+                              }
+
+                              return { ...current, [tableKey]: { ...prev, [col.columnName]: next } }
+                            })
                           }
                         />
                       </div>
