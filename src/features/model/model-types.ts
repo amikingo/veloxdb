@@ -18,6 +18,8 @@ export type DiagramLayoutSnapshot = {
   onCanvas: TableKey[]
   /** Editable label for the model (defaults to connection database name). */
   modelTitle?: string
+  /** Per-table diagram header fill (`#rrggbb`); overrides theme default. */
+  headerColors?: Record<TableKey, string>
 }
 
 export type ModelTableView = {

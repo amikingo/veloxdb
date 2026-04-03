@@ -11,6 +11,8 @@ export type KonvaPalette = {
   foreground: string
   mutedForeground: string
   edge: string
+  gridMinor: string
+  gridMajor: string
   shadow: string
   /** Resolved from CSS `--radius` for Konva rects */
   cornerRadiusPx: number
@@ -20,6 +22,8 @@ export function readKonvaPalette(isDark: boolean): KonvaPalette {
   const base = readKonvaPaletteFromDom()
   return {
     ...base,
+    gridMinor: isDark ? 'rgba(148, 163, 184, 0.12)' : 'rgba(15, 23, 42, 0.06)',
+    gridMajor: isDark ? 'rgba(148, 163, 184, 0.22)' : 'rgba(15, 23, 42, 0.11)',
     shadow: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(15, 23, 42, 0.1)',
   }
 }
@@ -52,12 +56,12 @@ function readCornerRadiusPx(root: HTMLElement): number {
   return px
 }
 
-function readKonvaPaletteFromDom(): Omit<KonvaPalette, 'shadow'> {
+function readKonvaPaletteFromDom(): Omit<KonvaPalette, 'gridMinor' | 'gridMajor' | 'shadow'> {
   const root = document.documentElement
   return {
     canvasBg: readColorVar(root, 'backgroundColor', '--background'),
     card: readColorVar(root, 'backgroundColor', '--card'),
-    header: readColorVar(root, 'backgroundColor', '--secondary'),
+    header: readColorVar(root, 'backgroundColor', '--diagram-table-header'),
     border: readColorVar(root, 'backgroundColor', '--border'),
     borderFocus: readColorVar(root, 'backgroundColor', '--ring'),
     foreground: readColorVar(root, 'color', '--card-foreground'),

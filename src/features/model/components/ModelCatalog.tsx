@@ -10,7 +10,7 @@ import { tableKey } from '@/features/model/model-types'
 type ModelCatalogProps = {
   tables: TableInfo[]
   onCanvasSet: ReadonlySet<TableKey>
-  selectedKey: TableKey | null
+  selectedKeys: readonly TableKey[]
   onSelectKey: (key: TableKey | null) => void
   onAddToCanvas: (table: TableInfo) => void
   onRemoveFromCanvas: (table: TableInfo) => void
@@ -22,7 +22,7 @@ const ROW_H = 40
 export function ModelCatalog({
   tables,
   onCanvasSet,
-  selectedKey,
+  selectedKeys,
   onSelectKey,
   onAddToCanvas,
   onRemoveFromCanvas,
@@ -75,7 +75,7 @@ export function ModelCatalog({
             if (!table) return null
             const key = tableKey(table)
             const onCanvas = onCanvasSet.has(key)
-            const selected = selectedKey === key
+            const selected = selectedKeys.includes(key)
             return (
               <div
                 key={key}

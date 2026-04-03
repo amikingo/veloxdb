@@ -12,8 +12,11 @@ import type {
 } from '@/features/model/apply-entire-model'
 import { tableKey, type TableKey } from '@/features/model/model-types'
 import { useTablePropertiesQuery } from '@/features/schema/queries'
+import { cn } from '@/lib/utils'
 
 type PendingFkInput = {
+  /** When omitted, the inspector table is the FK source. */
+  fromKey?: TableKey
   fromColumn: string
   toKey: TableKey
   toColumn: string
@@ -24,6 +27,11 @@ type ModelInspectorProps = {
   connectionId: string
   table: TableInfo | null
   tableKeyStr: TableKey | null
+  /** Theme default header color as `#rrggbb` for the native color input. */
+  defaultDiagramHeaderHex: string
+  /** User override for diagram node header; omit to use theme default. */
+  tableHeaderColor?: string
+  onTableHeaderColorChange: (hex: string | null) => void
   identityDraft: TableIdentityDraft | null
   onIdentityDraftChange: (next: TableIdentityDraft) => void
   columnOverrides: Record<string, ColumnOverride>
@@ -48,12 +56,24 @@ function ToggleButton({
   return (
     <button
       type="button"
-      className="flex items-center justify-center rounded-sm border border-border/80 bg-background/50 p-1 transition hover:bg-muted/30 disabled:opacity-50"
+      className={cn(
+        'flex items-center justify-center rounded-sm border p-1 transition disabled:opacity-50',
+        checked
+          ? 'border-[color:var(--control-accent)] bg-[color:var(--control-accent-muted)] text-[color:var(--control-accent)]'
+          : 'border-border/80 bg-background/50 hover:bg-muted/30',
+      )}
       disabled={disabled}
       aria-pressed={checked}
       onClick={onClick}
     >
-      {checked ? <CheckIcon className="size-3" /> : <span className="size-3 rounded-[2px] border border-border/80" />}
+      {checked ? (
+        <CheckIcon className="size-3 shrink-0" weight="bold" aria-hidden />
+      ) : (
+        <span
+          className="size-3 shrink-0 rounded-[2px] border border-[color:color-mix(in_oklab,var(--control-accent),var(--border)_78%)] bg-muted/15"
+          aria-hidden
+        />
+      )}
     </button>
   )
 }
@@ -71,6 +91,9 @@ export function ModelInspector({
   connectionId,
   table,
   tableKeyStr,
+  defaultDiagramHeaderHex,
+  tableHeaderColor,
+  onTableHeaderColorChange,
   identityDraft,
   onIdentityDraftChange,
   columnOverrides,
@@ -155,6 +178,7 @@ export function ModelInspector({
     if (!tableKeyStr || !fkFromColumn || !fkToKey || !fkToColumn) return
     if (fkToKey === tableKeyStr) return
     onAddPendingForeignKey({
+      fromKey: tableKeyStr,
       fromColumn: fkFromColumn,
       toKey: fkToKey,
       toColumn: fkToColumn,
@@ -206,6 +230,35 @@ export function ModelInspector({
             autoComplete="off"
           />
         </div>
+        {tableKeyStr ? (
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <label
+              className="text-[10px] font-medium text-muted-foreground"
+              htmlFor="model-inspector-header-color"
+            >
+              Diagram header
+            </label>
+            <input
+              id="model-inspector-header-color"
+              type="color"
+              className="h-8 w-10 cursor-pointer rounded border border-input bg-transparent p-0.5 dark:bg-input/30"
+              value={tableHeaderColor ?? defaultDiagramHeaderHex}
+              onChange={(e) => onTableHeaderColorChange(e.target.value)}
+              title="Color of this table’s header on the diagram"
+              aria-label="Diagram table header color"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-[10px]"
+              disabled={tableHeaderColor == null}
+              onClick={() => onTableHeaderColorChange(null)}
+            >
+              Reset
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto px-3 py-2">

@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from '@/components/ui/button'
 import type { ColumnProperties, TableInfo } from '@/data/types'
 import { useApplyTablePropertiesMutation, useTablePropertiesQuery } from '@/features/schema/queries'
+import { cn } from '@/lib/utils'
 
 type TablePropertiesDialogProps = {
   open: boolean
@@ -30,12 +31,24 @@ function ToggleButton({
   return (
     <button
       type="button"
-      className="flex items-center justify-center rounded-sm border border-border/80 bg-background/50 p-1 transition hover:bg-muted/30 disabled:opacity-50"
+      className={cn(
+        'flex items-center justify-center rounded-sm border p-1 transition disabled:opacity-50',
+        checked
+          ? 'border-[color:var(--control-accent)] bg-[color:var(--control-accent-muted)] text-[color:var(--control-accent)]'
+          : 'border-border/80 bg-background/50 hover:bg-muted/30',
+      )}
       disabled={disabled}
       aria-pressed={checked}
       onClick={onClick}
     >
-      {checked ? <CheckIcon className="size-3" /> : <span className="size-3 rounded-[2px] border border-border/80" />}
+      {checked ? (
+        <CheckIcon className="size-3 shrink-0" weight="bold" aria-hidden />
+      ) : (
+        <span
+          className="size-3 shrink-0 rounded-[2px] border border-[color:color-mix(in_oklab,var(--control-accent),var(--border)_78%)] bg-muted/15"
+          aria-hidden
+        />
+      )}
     </button>
   )
 }

@@ -39,6 +39,11 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Checkboxes, toggles, and other small controls (subtle hue, not full “rainbow” UI) */
+  --control-accent: oklch(0.5 0.14 262);
+  --control-accent-muted: oklch(0.5 0.14 262 / 14%);
+  /* ER diagram table node header (Konva); distinct from card body */
+  --diagram-table-header: oklch(0.94 0.02 262);
 }
 
 .dark {
@@ -69,6 +74,9 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --control-accent: oklch(0.7 0.12 262);
+  --control-accent-muted: oklch(0.7 0.12 262 / 18%);
+  --diagram-table-header: oklch(0.32 0.04 262);
 }
 
 @theme inline {
@@ -126,5 +134,19 @@
 
   #root {
     min-height: 100svh;
+  }
+
+  input[type='checkbox'] {
+    accent-color: var(--control-accent);
+    border-radius: 2px;
+  }
+
+  input[type='checkbox']:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--control-accent), transparent 40%);
+    outline-offset: 2px;
+  }
+
+  input[type='checkbox']:disabled {
+    opacity: 0.45;
   }
 }

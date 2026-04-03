@@ -262,7 +262,7 @@ export function ResultsGrid({
         cell: (context) => (
           <input
             type="checkbox"
-            className="size-3"
+            className="size-3.5 cursor-pointer"
             checked={context.row.getIsSelected()}
             onChange={context.row.getToggleSelectedHandler()}
             aria-label={`Select row ${context.row.index + 1}`}

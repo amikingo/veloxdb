@@ -1,9 +1,12 @@
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import { Group, Rect, Text } from 'react-konva'
+import type { KonvaEventObject } from 'konva/lib/Node'
 
 import type { ColumnInfo } from '@/data/types'
 import type { KonvaPalette } from '@/features/model/konva-theme'
 import { TABLE_NODE_WIDTH, tableNodeHeight } from '@/features/model/table-node-metrics'
+import { contrastMutedForBg, contrastTextForBg } from '@/lib/contrast-text-for-bg'
+import type { DiagramTool } from '@/features/model/use-diagram-interaction'
 
 const NODE_WIDTH = TABLE_NODE_WIDTH
 const HEADER_H = 40
@@ -11,35 +14,44 @@ const ROW_H = 18
 const MAX_ROWS = 8
 const PAD = 10
 
-type TableNodeProps = {
+export type TableNodeProps = {
   x: number
   y: number
   schema: string
   name: string
   columns: ColumnInfo[] | null
   selected: boolean
+  diagramTool: DiagramTool
   palette: KonvaPalette
+  /** Custom header gradient top color (`#rrggbb`); theme default when omitted. */
+  headerFill?: string
   /** When true, node is not draggable; used with Space-held canvas pan. */
   spaceHeld?: boolean
   onBeginCanvasPan?: (clientX: number, clientY: number) => void
-  onSelect: () => void
+  onSelect: (shiftKey: boolean) => void
   onDragEnd: (x: number, y: number) => void
   onRequestColumns: () => void
+  onConnectColumnPointerDown?: (columnName: string, e: KonvaEventObject<MouseEvent>) => void
+  onConnectColumnPointerUp?: (columnName: string, e: KonvaEventObject<MouseEvent>) => void
 }
 
-export function TableNode({
+function TableNodeInner({
   x,
   y,
   schema,
   name,
   columns,
   selected,
+  diagramTool,
   palette,
+  headerFill,
   spaceHeld = false,
   onBeginCanvasPan,
   onSelect,
   onDragEnd,
   onRequestColumns,
+  onConnectColumnPointerDown,
+  onConnectColumnPointerUp,
 }: TableNodeProps) {
   const height = useMemo(() => tableNodeHeight(columns), [columns])
 
@@ -51,11 +63,18 @@ export function TableNode({
   const stroke = selected ? palette.borderFocus : palette.border
   const strokeW = selected ? 2 : 1
 
+  const bandHeaderFill = headerFill ?? palette.header
+  const headerNameFill = headerFill ? contrastTextForBg(headerFill) : palette.foreground
+  const headerSchemaFill = headerFill ? contrastMutedForBg(headerFill) : palette.mutedForeground
+
+  const draggable = !spaceHeld && diagramTool === 'select'
+  const showConnectColumns = diagramTool === 'connect' && columns != null && columns.length > 0
+
   return (
     <Group
       x={x}
       y={y}
-      draggable={!spaceHeld}
+      draggable={draggable}
       dragDistance={8}
       onMouseDown={(e) => {
         if (spaceHeld && onBeginCanvasPan && e.evt.button === 0) {
@@ -64,18 +83,25 @@ export function TableNode({
           return
         }
         e.cancelBubble = true
-        onSelect()
+        onSelect(e.evt.shiftKey)
       }}
       onDragEnd={(e) => {
         onDragEnd(e.target.x(), e.target.y())
       }}
       onDblClick={(e) => {
         e.cancelBubble = true
+        // Focus this table for inspector + canvas highlight (dblclick alone does not replay click).
+        onSelect(false)
+        onRequestColumns()
+      }}
+      onDblTap={(e) => {
+        e.cancelBubble = true
+        onSelect(false)
         onRequestColumns()
       }}
       onTap={(e) => {
         e.cancelBubble = true
-        onSelect()
+        onSelect(false)
       }}
     >
       <Rect
@@ -86,9 +112,9 @@ export function TableNode({
         fillLinearGradientEndPoint={{ x: 0, y: height }}
         fillLinearGradientColorStops={[
           0,
-          palette.header,
+          bandHeaderFill,
           headerStop,
-          palette.header,
+          bandHeaderFill,
           headerStop,
           palette.card,
           1,
@@ -111,7 +137,7 @@ export function TableNode({
         fontSize={13}
         fontStyle="bold"
         fontFamily="system-ui, -apple-system, Segoe UI, sans-serif"
-        fill={palette.foreground}
+        fill={headerNameFill}
         listening={false}
         perfectDrawEnabled={false}
         ellipsis
@@ -123,7 +149,7 @@ export function TableNode({
         text={schema}
         fontSize={11}
         fontFamily="system-ui, -apple-system, Segoe UI, sans-serif"
-        fill={palette.mutedForeground}
+        fill={headerSchemaFill}
         listening={false}
         perfectDrawEnabled={false}
         ellipsis
@@ -143,19 +169,38 @@ export function TableNode({
       ) : (
         <>
           {rows.map((col, i) => (
-            <Text
-              key={col.columnName}
-              x={PAD}
-              y={HEADER_H + 8 + i * ROW_H}
-              width={NODE_WIDTH - PAD * 2}
-              text={`${col.columnName}  ·  ${col.dataType}`}
-              fontSize={11}
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fill={palette.foreground}
-              listening={false}
-              perfectDrawEnabled={false}
-              ellipsis
-            />
+            <Group key={col.columnName}>
+              {showConnectColumns ? (
+                <Rect
+                  x={PAD}
+                  y={HEADER_H + 4 + i * ROW_H}
+                  width={NODE_WIDTH - PAD * 2}
+                  height={ROW_H}
+                  fill="rgba(0,0,0,0.001)"
+                  onMouseDown={(e) => {
+                    e.cancelBubble = true
+                    onConnectColumnPointerDown?.(col.columnName, e)
+                  }}
+                  onMouseUp={(e) => {
+                    e.cancelBubble = true
+                    onConnectColumnPointerUp?.(col.columnName, e)
+                  }}
+                  perfectDrawEnabled={false}
+                />
+              ) : null}
+              <Text
+                x={PAD}
+                y={HEADER_H + 8 + i * ROW_H}
+                width={NODE_WIDTH - PAD * 2}
+                text={`${col.columnName}  ·  ${col.dataType}`}
+                fontSize={11}
+                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fill={palette.foreground}
+                listening={false}
+                perfectDrawEnabled={false}
+                ellipsis
+              />
+            </Group>
           ))}
           {moreCount > 0 ? (
             <Text
@@ -175,3 +220,5 @@ export function TableNode({
     </Group>
   )
 }
+
+export const TableNode = memo(TableNodeInner)

@@ -1,0 +1,30 @@
+# Local PostgreSQL for VeloxDB development / manual testing.
+#
+# Connection (from the app): host localhost · port 15432 · user velox · password velox · db veloxdb
+# URL: postgresql://velox:velox@localhost:15432/veloxdb
+#
+# Start:  docker compose -f docker-compose.pg.yml up -d
+# Stop:   docker compose -f docker-compose.pg.yml down
+# Shell:  docker compose -f docker-compose.pg.yml exec postgres psql -U velox -d veloxdb
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: veloxdb-postgres
+    environment:
+      POSTGRES_USER: velox
+      POSTGRES_PASSWORD: velox
+      POSTGRES_DB: veloxdb
+    # Host port (left side) — change if 15432 is taken on your machine.
+    ports:
+      - "15432:5432"
+    volumes:
+      - veloxdb_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U velox -d veloxdb"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  veloxdb_pg_data:

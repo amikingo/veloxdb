@@ -7,6 +7,18 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+/build
+/dist
+/dist-ssr
+/node_modules
+/src-tauri/target
+/src-tauri/gen
+/src-tauri/gen-c
+/src-tauri/gen-cxx
+/src-tauri/gen-rust
+/src-tauri/gen-rust-bindings
+/src-tauri/gen-rust-bindings-cxx
+
 node_modules
 dist
 dist-ssr

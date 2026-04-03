@@ -28,16 +28,25 @@ export function loadDiagramLayout(connectionId: string): DiagramLayoutSnapshot |
   const all = readAll()
   const snap = all[connectionId]
   if (!snap || !Array.isArray(snap.onCanvas)) return null
+  const headerColors =
+    snap.headerColors && typeof snap.headerColors === 'object' && !Array.isArray(snap.headerColors)
+      ? { ...(snap.headerColors as Record<TableKey, string>) }
+      : undefined
   return {
     positions: snap.positions ?? {},
     viewport: snap.viewport ?? { scale: 1, x: 0, y: 0 },
     onCanvas: snap.onCanvas,
     modelTitle: typeof snap.modelTitle === 'string' ? snap.modelTitle : undefined,
+    ...(headerColors && Object.keys(headerColors).length > 0 ? { headerColors } : {}),
   }
 }
 
 export function saveDiagramLayout(connectionId: string, snapshot: DiagramLayoutSnapshot) {
   const all = readAll()
+  const headerColors =
+    snapshot.headerColors && Object.keys(snapshot.headerColors).length > 0
+      ? { ...snapshot.headerColors }
+      : undefined
   all[connectionId] = {
     positions: { ...snapshot.positions },
     viewport: { ...snapshot.viewport },
@@ -45,6 +54,7 @@ export function saveDiagramLayout(connectionId: string, snapshot: DiagramLayoutS
     ...(snapshot.modelTitle != null && snapshot.modelTitle !== ''
       ? { modelTitle: snapshot.modelTitle }
       : {}),
+    ...(headerColors ? { headerColors } : {}),
   }
   writeAll(all)
 }

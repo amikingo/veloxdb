@@ -69,7 +69,7 @@ export function ResultsToolbar({
                   >
                     <input
                       type="checkbox"
-                      className="size-3"
+                      className="size-3.5 cursor-pointer"
                       checked={column.visible}
                       disabled={!column.canHide}
                       onChange={(event) => onToggleColumn(column.id, event.target.checked)}
