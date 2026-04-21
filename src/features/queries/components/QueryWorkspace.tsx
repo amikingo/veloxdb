@@ -187,26 +187,28 @@ function QueryPane({
 
 	return (
 		<section
-			className="flex min-h-0 min-w-0 flex-1 flex-col outline-none"
+			className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden outline-none"
 			aria-label="Query editor"
 		>
-			<section className="min-h-0 min-w-0 flex-1">
-				<SqlEditor
-					value={tab.sql}
-					isDark={isDark}
-					onChange={onSqlChange}
-					onRun={onRun}
-				/>
+			<section className="relative z-0 min-h-0 min-w-0 flex-1 overflow-hidden">
+				<div className="min-h-0 h-full min-w-0 overflow-hidden contain-[layout_paint]">
+					<SqlEditor
+						value={tab.sql}
+						isDark={isDark}
+						onChange={onSqlChange}
+						onRun={onRun}
+					/>
+				</div>
 			</section>
 
 			<div
-				className="h-1 cursor-row-resize border-y border-border bg-muted/10 hover:bg-muted/30"
+				className="relative z-20 h-1 shrink-0 cursor-row-resize border-y border-border bg-muted/10 hover:bg-muted/30"
 				onPointerDown={onResultsResizeStart}
 				title="Resize results"
 			/>
 
 			<section
-				className="min-h-0 min-w-0 h-full overflow-hidden"
+				className="relative z-10 min-h-0 min-w-0 shrink-0 overflow-hidden bg-background isolate"
 				style={{ height: `${resultsHeight}px` }}
 			>
 				<Tabs
@@ -262,7 +264,7 @@ function QueryPane({
 
 					<TabsContent
 						value="results"
-						className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+						className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
 					>
 						<ErrorBoundary
 							fallback={
@@ -293,7 +295,7 @@ function QueryPane({
 
 					<TabsContent
 						value="plan"
-						className="m-0 min-h-0 flex-1 data-[state=inactive]:hidden"
+						className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden"
 					>
 						<ErrorBoundary
 							fallback={
@@ -693,7 +695,10 @@ export const QueryWorkspace = forwardRef<
 	);
 
 	return (
-		<div ref={layoutRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
+		<div
+			ref={layoutRef}
+			className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+		>
 			<div className="flex min-w-0 shrink-0 flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
 				<div
 					className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
