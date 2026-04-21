@@ -269,10 +269,19 @@ pub async fn get_table_properties(
         let columns = client
         .query(
             "
-            select table_schema, table_name, column_name, data_type, is_nullable
-            from information_schema.columns
-            where table_schema = $1 and table_name = $2
-            order by ordinal_position
+            select
+              c.table_schema,
+              c.table_name,
+              c.column_name,
+              c.data_type,
+              c.is_nullable,
+              c.column_default,
+              c.is_identity,
+              c.identity_generation,
+              c.is_generated
+            from information_schema.columns c
+            where c.table_schema = $1 and c.table_name = $2
+            order by c.ordinal_position
             ",
             &[&input.table_schema, &input.table_name],
         )
@@ -349,6 +358,10 @@ pub async fn get_table_properties(
             let column_name: String = row.get(2);
             let data_type: String = row.get(3);
             let is_nullable = row.get::<_, String>(4) == "YES";
+            let column_default: Option<String> = row.get(5);
+            let is_identity = row.get::<_, Option<String>>(6).as_deref() == Some("YES");
+            let identity_generation: Option<String> = row.get(7);
+            let is_generated: Option<String> = row.get(8);
 
             let is_primary_key = primary_key_columns.contains(&column_name);
             let is_unique = is_primary_key || unique_columns.contains(&column_name);
@@ -363,6 +376,10 @@ pub async fn get_table_properties(
                 is_primary_key,
                 is_unique,
                 is_part_of_composite_unique,
+                column_default,
+                is_identity,
+                identity_generation,
+                is_generated,
             }
         })
         .collect())

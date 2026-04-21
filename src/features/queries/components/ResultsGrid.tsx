@@ -37,6 +37,8 @@ type ResultsGridProps = {
   saveDisabledReason?: string
   onRefresh?: () => void
   onSaveEdits?: (patches: ResultEditPatch[]) => Promise<void>
+  /** Opens add-row dialog when a table is selected in the shell. */
+  onAddRow?: () => void
 }
 
 function formatValue(value: string | null | undefined) {
@@ -134,6 +136,7 @@ function renderLoadingSkeleton() {
         onDownloadCsv={() => {}}
         onDownloadJson={() => {}}
         onSave={() => {}}
+        onAddRow={undefined}
       />
       <div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
         <div className="flex h-full w-max min-w-full flex-col">
@@ -191,6 +194,7 @@ export function ResultsGrid({
   saveDisabledReason,
   onRefresh,
   onSaveEdits,
+  onAddRow,
 }: ResultsGridProps) {
   const parentRef = useRef<HTMLDivElement | null>(null)
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
@@ -496,7 +500,7 @@ export function ResultsGrid({
     }
   }
 
-  const handleDownloadCsv = () => {
+  const handleDownloadCsv = async () => {
     const exportColumns = visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id)
     if (exportColumns.length === 0) {
       setGridError('No visible data columns to export.')
@@ -505,14 +509,14 @@ export function ResultsGrid({
 
     setGridError(null)
     try {
-      downloadRowsAsCsv('query-results.csv', exportColumns, getRowsForAction())
+      await downloadRowsAsCsv('query-results.csv', exportColumns, getRowsForAction())
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to download CSV.'
       setGridError(message)
     }
   }
 
-  const handleDownloadJson = () => {
+  const handleDownloadJson = async () => {
     const exportColumns = visibleColumns.filter((column) => column.id !== '__select').map((column) => column.id)
     if (exportColumns.length === 0) {
       setGridError('No visible data columns to export.')
@@ -521,7 +525,7 @@ export function ResultsGrid({
 
     setGridError(null)
     try {
-      downloadRowsAsJson('query-results.json', exportColumns, getRowsForAction())
+      await downloadRowsAsJson('query-results.json', exportColumns, getRowsForAction())
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to download JSON.'
       setGridError(message)
@@ -566,11 +570,16 @@ export function ResultsGrid({
         onCopy={() => {
           void handleCopy()
         }}
-        onDownloadCsv={handleDownloadCsv}
-        onDownloadJson={handleDownloadJson}
+        onDownloadCsv={() => {
+          void handleDownloadCsv()
+        }}
+        onDownloadJson={() => {
+          void handleDownloadJson()
+        }}
         onSave={() => {
           void handleSave()
         }}
+        onAddRow={onAddRow}
       />
       <div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
         <div className="flex h-full w-max min-w-full flex-col">

@@ -1,4 +1,4 @@
-import type { TableInfo } from '@/data/types'
+import type { ColumnProperties, TableInfo } from '@/data/types'
 
 export type ResultRow = Record<string, string | null>
 
@@ -60,4 +60,37 @@ export function buildUpdateStatements(request: SaveResultEditsRequest) {
       return `UPDATE ${tableName} SET ${assignments} WHERE ${whereClause};`
     })
     .filter(Boolean)
+}
+
+/** Columns that can appear in a simple INSERT form (skip identity ALWAYS / generated ALWAYS). */
+export function isInsertFormColumn(column: ColumnProperties): boolean {
+  if (column.isGenerated === 'ALWAYS') {
+    return false
+  }
+  if (column.isIdentity && column.identityGeneration === 'ALWAYS') {
+    return false
+  }
+  return true
+}
+
+export type InsertRowColumnValue = {
+  columnName: string
+  value: string | null
+}
+
+export type InsertRowRequest = {
+  connectionId: string
+  table: TableInfo
+  columns: InsertRowColumnValue[]
+}
+
+export function buildInsertStatement(request: InsertRowRequest): string {
+  const tableName = `${quoteIdentifier(request.table.schema)}.${quoteIdentifier(request.table.name)}`
+  if (request.columns.length === 0) {
+    return `INSERT INTO ${tableName}\nDEFAULT VALUES;`
+  }
+
+  const columnList = request.columns.map((c) => quoteIdentifier(c.columnName)).join(', ')
+  const values = request.columns.map((c) => sqlLiteral(c.value)).join(', ')
+  return `INSERT INTO ${tableName} (${columnList})\nVALUES (${values});`
 }

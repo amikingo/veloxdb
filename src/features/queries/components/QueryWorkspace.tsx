@@ -49,6 +49,10 @@ type SaveMutation = UseMutationResult<
 
 export type QueryWorkspaceHandle = {
 	applyTablePreview: (sql: string) => void;
+	/** Replace editor SQL without executing (binds active connection when set). */
+	replaceQuerySql: (sql: string) => void;
+	/** Append SQL to the editor without executing (binds active connection when set). */
+	appendQuerySql: (sql: string) => void;
 	runLastQuery: () => void;
 	refreshFocusedResults: () => void;
 	getHasLastQuery: () => boolean;
@@ -80,6 +84,8 @@ type QueryWorkspaceProps = {
 	}) => void;
 	/** When switching to a tab that targets another saved connection, activate it in the shell. */
 	onActivateConnectionForTab?: (connectionId: string) => void;
+	/** Open add-row dialog (shell provides selected table + connection). */
+	onOpenAddRow?: () => void;
 };
 
 function buildPersistSnapshot(state: QueryWorkspaceState) {
@@ -132,6 +138,7 @@ type QueryPaneProps = {
 	onRefreshPlan: () => void;
 	connectionError: unknown;
 	connectionErrorMessage: string;
+	onAddRow?: () => void;
 };
 
 function QueryPane({
@@ -156,6 +163,7 @@ function QueryPane({
 	onRefreshPlan,
 	connectionError,
 	connectionErrorMessage,
+	onAddRow,
 }: QueryPaneProps) {
 	const resultsTab = tab.resultsSubTab;
 	const runPending = tab.runInFlight;
@@ -257,6 +265,7 @@ function QueryPane({
 								saveDisabledReason={saveDisabledReason}
 								onRefresh={onRefreshResults}
 								onSaveEdits={onSaveResultEdits}
+								onAddRow={onAddRow}
 							/>
 						</ErrorBoundary>
 					</TabsContent>
@@ -348,6 +357,7 @@ export const QueryWorkspace = forwardRef<
 		onSaveResultEdits,
 		onFocusedTabCapabilitiesChange,
 		onActivateConnectionForTab,
+		onOpenAddRow,
 	},
 	ref,
 ) {
@@ -357,9 +367,12 @@ export const QueryWorkspace = forwardRef<
 		loadQueryWorkspaceInitialState,
 	);
 	const stateRef = useRef(state);
-	stateRef.current = state;
 
 	const layoutRef = useRef<HTMLDivElement | null>(null);
+
+	useEffect(() => {
+		stateRef.current = state;
+	}, [state]);
 
 	const runQueryMutation = useRunQueryMutation({
 		onSuccess: (result, variables) => {
@@ -556,6 +569,24 @@ export const QueryWorkspace = forwardRef<
 					bindConnectionId: connectionId ?? undefined,
 				});
 				runForTab(tabId, sql);
+			},
+			replaceQuerySql: (sql: string) => {
+				const tabId = getFocusedTabId(stateRef.current);
+				dispatch({
+					type: "replaceTabSql",
+					tabId,
+					sql,
+					bindConnectionId: connectionId ?? undefined,
+				});
+			},
+			appendQuerySql: (sql: string) => {
+				const tabId = getFocusedTabId(stateRef.current);
+				dispatch({
+					type: "appendSql",
+					tabId,
+					sql,
+					bindConnectionId: connectionId ?? undefined,
+				});
 			},
 			setActiveTabConnection: (cid: string | null) => {
 				dispatch({ type: "setActiveTabConnection", connectionId: cid });
@@ -754,6 +785,7 @@ export const QueryWorkspace = forwardRef<
 					}
 					connectionError={connectionError}
 					connectionErrorMessage={connectionErrorMessage}
+					onAddRow={onOpenAddRow}
 				/>
 			) : null}
 		</div>

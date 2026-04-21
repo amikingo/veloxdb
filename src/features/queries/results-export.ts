@@ -12,7 +12,30 @@ function csvEscape(value: string) {
   return value
 }
 
-function downloadTextFile(filename: string, content: string, contentType: string) {
+/** Save via Tauri save dialog + fs when available; otherwise browser download. */
+async function downloadTextFile(
+  filename: string,
+  content: string,
+  contentType: string,
+  filters: { name: string; extensions: string[] }[],
+) {
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs')
+    const path = await save({
+      title: 'Export results',
+      defaultPath: filename,
+      filters,
+    })
+    if (path === null) {
+      return
+    }
+    await writeTextFile(path, content)
+    return
+  } catch {
+    // Not running under Tauri or export failed — fall back below.
+  }
+
   const blob = new Blob([content], { type: contentType })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -23,24 +46,31 @@ function downloadTextFile(filename: string, content: string, contentType: string
   URL.revokeObjectURL(url)
 }
 
-export function downloadRowsAsCsv(filename: string, columns: string[], rows: ResultRow[]) {
+export async function downloadRowsAsCsv(filename: string, columns: string[], rows: ResultRow[]) {
   const header = columns.map(csvEscape).join(',')
   const body = rows
     .map((row) => columns.map((column) => csvEscape(toDisplay(row[column]))).join(','))
     .join('\n')
   const content = `${header}${body ? `\n${body}` : ''}`
 
-  downloadTextFile(filename, content, 'text/csv;charset=utf-8')
+  await downloadTextFile(filename, content, 'text/csv;charset=utf-8', [
+    { name: 'CSV', extensions: ['csv'] },
+  ])
 }
 
-export function downloadRowsAsJson(filename: string, columns: string[], rows: ResultRow[]) {
+export async function downloadRowsAsJson(filename: string, columns: string[], rows: ResultRow[]) {
   const normalized = rows.map((row) =>
     columns.reduce<Record<string, string | null>>((accumulator, column) => {
       accumulator[column] = row[column] ?? null
       return accumulator
     }, {}),
   )
-  downloadTextFile(filename, JSON.stringify(normalized, null, 2), 'application/json;charset=utf-8')
+  await downloadTextFile(
+    filename,
+    JSON.stringify(normalized, null, 2),
+    'application/json;charset=utf-8',
+    [{ name: 'JSON', extensions: ['json'] }],
+  )
 }
 
 export async function copyRows(columns: string[], rows: ResultRow[]) {

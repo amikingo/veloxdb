@@ -18,6 +18,8 @@ type ResultsToolbarProps = {
   onDownloadCsv: () => void
   onDownloadJson: () => void
   onSave: () => void
+  /** When set, show “Add row” for direct INSERT into the selected table. */
+  onAddRow?: () => void
 }
 
 export function ResultsToolbar({
@@ -31,11 +33,17 @@ export function ResultsToolbar({
   onDownloadCsv,
   onDownloadJson,
   onSave,
+  onAddRow,
 }: ResultsToolbarProps) {
   return (
     <div className="min-w-0 overflow-x-auto border-b border-border bg-muted/20 px-3 py-2">
       <div className="flex min-w-full w-max items-center justify-between gap-3">
         <div className="flex shrink-0 items-center gap-2">
+          {onAddRow ? (
+            <Button variant="outline" size="xs" onClick={onAddRow} disabled={isBusy}>
+              Add row
+            </Button>
+          ) : null}
           <Button variant="outline" size="xs" onClick={onRefresh} disabled={isBusy}>
             Refresh
           </Button>

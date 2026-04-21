@@ -3,7 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import { veloxDbRepository } from "@/data/repositories";
 import type { QueryRequest, QueryResult } from "@/data/types";
 import {
+	buildInsertStatement,
 	buildUpdateStatements,
+	type InsertRowRequest,
 	type SaveResultEditsRequest,
 } from "@/features/queries/result-edits";
 import { shouldRetryTransientDbInvoke } from "@/lib/transient-invoke-retry";
@@ -112,6 +114,19 @@ export function useSaveResultEditsMutation() {
 				}
 				throw error;
 			}
+		},
+	});
+}
+
+export function useInsertRowMutation() {
+	return useMutation({
+		retry: shouldRetryTransientDbInvoke,
+		mutationFn: async (request: InsertRowRequest) => {
+			const sql = buildInsertStatement(request);
+			await veloxDbRepository.runQuery({
+				connectionId: request.connectionId,
+				sql,
+			});
 		},
 	});
 }

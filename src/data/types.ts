@@ -51,6 +51,14 @@ export type ColumnProperties = {
   isPrimaryKey: boolean
   isUnique: boolean
   isPartOfCompositeUnique: boolean
+  /** Raw `information_schema.columns.column_default` (may be null). */
+  columnDefault?: string | null
+  /** `is_identity = YES` */
+  isIdentity?: boolean
+  /** `ALWAYS` | `BY DEFAULT` or null */
+  identityGeneration?: string | null
+  /** `ALWAYS` | `NEVER` | `BY DEFAULT` for generated columns */
+  isGenerated?: string | null
 }
 
 export type ColumnPropertiesUpdate = {

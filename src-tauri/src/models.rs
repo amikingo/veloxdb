@@ -117,6 +117,14 @@ pub struct ColumnProperties {
     pub is_primary_key: bool,
     pub is_unique: bool,
     pub is_part_of_composite_unique: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column_default: Option<String>,
+    #[serde(default)]
+    pub is_identity: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity_generation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_generated: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

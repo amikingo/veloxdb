@@ -132,6 +132,20 @@ export function loadQueryWorkspaceInitialState(): QueryWorkspaceState {
 
 export type QueryWorkspaceAction =
 	| { type: "setSql"; tabId: string; sql: string }
+	/** Replace editor buffer without running; optional connection bind like applyTablePreview. */
+	| {
+			type: "replaceTabSql";
+			tabId: string;
+			sql: string;
+			bindConnectionId?: string | null;
+	  }
+	/** Append SQL to the editor without running; optional connection bind. */
+	| {
+			type: "appendSql";
+			tabId: string;
+			sql: string;
+			bindConnectionId?: string | null;
+	  }
 	| { type: "addTab"; connectionId: string | null }
 	| { type: "closeTab"; tabId: string }
 	| { type: "selectTab"; tabId: string }
@@ -182,6 +196,40 @@ export function queryWorkspaceReducer(
 				...tab,
 				sql: action.sql,
 				title: titleFromSql(action.sql),
+			};
+			return { ...state, tabs: { ...state.tabs, [action.tabId]: next } };
+		}
+		case "replaceTabSql": {
+			const tab = state.tabs[action.tabId];
+			if (!tab) return state;
+			const nextConnectionId =
+				action.bindConnectionId !== undefined
+					? action.bindConnectionId
+					: tab.connectionId;
+			const next: QueryTabModel = {
+				...tab,
+				sql: action.sql,
+				title: titleFromSql(action.sql),
+				connectionId: nextConnectionId ?? tab.connectionId,
+			};
+			return { ...state, tabs: { ...state.tabs, [action.tabId]: next } };
+		}
+		case "appendSql": {
+			const tab = state.tabs[action.tabId];
+			if (!tab) return state;
+			const nextConnectionId =
+				action.bindConnectionId !== undefined
+					? action.bindConnectionId
+					: tab.connectionId;
+			const chunk = action.sql.trim();
+			const base = tab.sql.trimEnd();
+			const nextSql =
+				base.length === 0 ? chunk : `${base}\n\n${chunk}`;
+			const next: QueryTabModel = {
+				...tab,
+				sql: nextSql,
+				title: titleFromSql(nextSql),
+				connectionId: nextConnectionId ?? tab.connectionId,
 			};
 			return { ...state, tabs: { ...state.tabs, [action.tabId]: next } };
 		}

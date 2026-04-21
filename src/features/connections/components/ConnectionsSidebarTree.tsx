@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { TreeView, type TreeDataItem, type TreeRenderItemParams } from '@/components/ui/tree-view'
+import type { TableQuickSqlAction } from '@/features/queries/table-quick-actions'
 import { useTableSchemaQuery } from '@/features/schema/queries'
 
 type ConnectionContextMenuTarget = {
@@ -128,7 +129,11 @@ type ConnectionsSidebarTreeProps = {
   onOpenConnection: () => void
   onSelectConnection: (connection: ConnectionSummary) => void
   onSelectTable: (table: TableInfo) => void
-  onOpenTableProperties: (connectionId: string, table: TableInfo) => void
+  onTableQuickAction: (
+    action: TableQuickSqlAction,
+    connectionId: string,
+    table: TableInfo,
+  ) => void | Promise<void>
   onToggleCollapsed: () => void
 }
 
@@ -203,7 +208,7 @@ const TableTreeItem = memo(function TableTreeItem({
             'flex h-8 min-w-0 flex-1 items-center gap-2 rounded-sm px-2 text-left text-xs transition hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground',
             isSelected && 'bg-sidebar-accent text-sidebar-accent-foreground',
           )}
-          style={{ paddingLeft: `${8 + level * 14}px` }}
+          style={{ paddingLeft: `${4 + level * 10}px` }}
           onClick={(event) => {
             // Delay selection slightly to avoid running previews on double-click.
             if (event.detail > 1) {
@@ -251,7 +256,7 @@ const TableTreeItem = memo(function TableTreeItem({
       </div>
 
       {isExpanded ? (
-        <div className="ml-8 mr-2 border-l border-sidebar-border/60 pl-3 py-1.5">
+        <div className="ml-5 border-l border-sidebar-border/60 py-1.5 pl-2 pr-0.5">
           {schemaQuery.isLoading ? (
             <div className="flex items-center gap-2 py-1 text-[11px] text-sidebar-foreground/60">
               <SpinnerGapIcon className="size-3 animate-spin" />
@@ -308,11 +313,9 @@ export function ConnectionsSidebarTree({
   onOpenConnection,
   onSelectConnection,
   onSelectTable,
-  onOpenTableProperties,
+  onTableQuickAction,
   onToggleCollapsed,
 }: ConnectionsSidebarTreeProps) {
-  void onOpenTableProperties
-
   const [isTablesPanelExpanded, setIsTablesPanelExpanded] = useState(true)
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -364,8 +367,8 @@ export function ConnectionsSidebarTree({
       event.stopPropagation()
 
       const padding = 8
-      const assumedMenuWidth = 220
-      const assumedMenuHeight = 160
+      const assumedMenuWidth = 280
+      const assumedMenuHeight = 420
       const maxX = Math.max(padding, window.innerWidth - assumedMenuWidth - padding)
       const maxY = Math.max(padding, window.innerHeight - assumedMenuHeight - padding)
 
@@ -446,8 +449,8 @@ export function ConnectionsSidebarTree({
     if (!isTablesPanelExpanded) return null
 
     return (
-      <div className="ml-6 mr-2 border-l border-sidebar-border/60 pl-3">
-        <div className="py-2 pr-1">
+      <div className="ml-3 border-l border-sidebar-border/60 pl-2 pr-1">
+        <div className="py-2">
           <div className="relative">
             <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1/2 size-4 -translate-y-1/2 text-sidebar-foreground/50" />
             <Input
@@ -460,11 +463,11 @@ export function ConnectionsSidebarTree({
         </div>
 
         {tablesErrorMessage ? (
-          <div className="px-3 py-4 text-xs text-destructive">{tablesErrorMessage}</div>
+          <div className="px-2 py-3 text-xs text-destructive">{tablesErrorMessage}</div>
         ) : (
           <>
             {!isTablesLoading && filteredTablesWithKeys.length === 0 ? (
-              <div className="px-3 py-4 text-xs text-sidebar-foreground/60">
+              <div className="px-2 py-3 text-xs text-sidebar-foreground/60">
                 {isSearching
                   ? 'No tables match the current filter.'
                   : 'No tables were found for this connection.'}
@@ -472,14 +475,14 @@ export function ConnectionsSidebarTree({
             ) : null}
 
             {isTablesLoading ? (
-              <div className="flex items-center gap-2 px-3 py-4 text-xs text-sidebar-foreground/60">
+              <div className="flex items-center gap-2 px-2 py-3 text-xs text-sidebar-foreground/60">
                 <SpinnerGapIcon className="size-4 animate-spin" />
                 Loading tables...
               </div>
             ) : null}
 
             {!isTablesLoading && filteredTablesWithKeys.length > 0 ? (
-              <div className="max-h-[55vh] overflow-auto py-1 pr-1">
+              <div className="max-h-[55vh] overflow-auto py-1">
                 <TreeView
                   data={tableTreeData}
                   renderItem={(params: TreeRenderItemParams) => {
@@ -550,7 +553,7 @@ export function ConnectionsSidebarTree({
         {contextMenu ? (
           <div
             ref={contextMenuRef}
-            className="fixed z-50 w-[220px] rounded-md border border-sidebar-border bg-popover p-1 text-xs shadow-lg"
+            className="fixed z-50 min-w-[260px] max-w-[min(90vw,320px)] rounded-md border border-sidebar-border bg-popover p-1 text-xs shadow-lg"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             role="menu"
             aria-label="Sidebar context menu"
@@ -610,6 +613,110 @@ export function ConnectionsSidebarTree({
                   }}
                 >
                   <span>{tableContextMenuTarget.isExpanded ? 'Hide fields' : 'Show fields'}</span>
+                </button>
+
+                <div className="my-1 h-px bg-sidebar-border/60" /> 
+
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => {
+                    void onTableQuickAction(
+                      'selectAll',
+                      tableContextMenuTarget.connectionId,
+                      tableContextMenuTarget.table,
+                    )
+                    setContextMenu(null)
+                  }}
+                >
+                  <span>SELECT * (LIMIT)</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => {
+                    void onTableQuickAction(
+                      'selectCount',
+                      tableContextMenuTarget.connectionId,
+                      tableContextMenuTarget.table,
+                    )
+                    setContextMenu(null)
+                  }}
+                >
+                  <span>SELECT COUNT(*)</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => {
+                    void onTableQuickAction(
+                      'insertTemplate',
+                      tableContextMenuTarget.connectionId,
+                      tableContextMenuTarget.table,
+                    )
+                    setContextMenu(null)
+                  }}
+                >
+                  <span>INSERT template</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => {
+                    void onTableQuickAction(
+                      'updateTemplate',
+                      tableContextMenuTarget.connectionId,
+                      tableContextMenuTarget.table,
+                    )
+                    setContextMenu(null)
+                  }}
+                >
+                  <span>UPDATE template</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => {
+                    void onTableQuickAction(
+                      'deleteTemplate',
+                      tableContextMenuTarget.connectionId,
+                      tableContextMenuTarget.table,
+                    )
+                    setContextMenu(null)
+                  }}
+                >
+                  <span>DELETE template</span>
+                </button>
+
+                <div className="my-1 h-px bg-sidebar-border/60" />
+
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => {
+                    void onTableQuickAction(
+                      'addRow',
+                      tableContextMenuTarget.connectionId,
+                      tableContextMenuTarget.table,
+                    )
+                    setContextMenu(null)
+                  }}
+                >
+                  <span>Add row…</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={() => {
+                    void onTableQuickAction(
+                      'tableProperties',
+                      tableContextMenuTarget.connectionId,
+                      tableContextMenuTarget.table,
+                    )
+                    setContextMenu(null)
+                  }}
+                >
+                  <span>Table properties</span>
                 </button>
               </>
             ) : null}

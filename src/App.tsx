@@ -1,4 +1,5 @@
 import { MoonIcon, SidebarSimpleIcon, SunIcon } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	type CSSProperties,
 	type PointerEvent as ReactPointerEvent,
@@ -11,6 +12,8 @@ import {
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { queryKeys } from "@/data/query-keys";
+import { veloxDbRepository } from "@/data/repositories";
 import type { ConnectionSummary, TableInfo } from "@/data/types";
 import { CommandPalette } from "@/features/commands/components/CommandPalette";
 import { ConnectionDialog } from "@/features/connections/components/ConnectionDialog";
@@ -23,12 +26,21 @@ import {
 import { ModelWorkspace } from "@/features/model/components/ModelWorkspace";
 import { readOnboardingCompleted } from "@/features/onboarding/constants";
 import { OnboardingFlow } from "@/features/onboarding/OnboardingFlow";
+import { AddRowDialog } from "@/features/queries/components/AddRowDialog";
 import {
 	QueryWorkspace,
 	type QueryWorkspaceHandle,
 } from "@/features/queries/components/QueryWorkspace";
 import { useSaveResultEditsMutation } from "@/features/queries/queries";
-import type { ResultEditPatch } from "@/features/queries/result-edits";
+import {
+	buildDeleteTemplateSql,
+	buildInsertTemplateSql,
+	buildSelectAllSql,
+	buildSelectCountSql,
+	buildUpdateTemplateSql,
+} from "@/features/queries/sql-templates";
+import type { TableQuickSqlAction } from "@/features/queries/table-quick-actions";
+import { isInsertFormColumn, type ResultEditPatch } from "@/features/queries/result-edits";
 import { TablePropertiesDialog } from "@/features/schema/components/TablePropertiesDialog";
 import {
 	useTablePropertiesQuery,
@@ -93,9 +105,15 @@ function VeloxApp() {
 		connectionId: string;
 		table: TableInfo;
 	} | null>(null);
+	const [addRowDialog, setAddRowDialog] = useState<{
+		connectionId: string;
+		table: TableInfo;
+	} | null>(null);
 	const [mainWorkspace, setMainWorkspace] = useState<"query" | "model">(
 		"query",
 	);
+
+	const queryClient = useQueryClient();
 
 	useEffect(() => {
 		document.documentElement.classList.toggle("dark", isDark);
@@ -216,13 +234,65 @@ function VeloxApp() {
 		queryWorkspaceRef.current?.applyTablePreview(table.previewQuery);
 	};
 
-	const handleOpenTableProperties = (
-		connectionId: string,
-		table: TableInfo,
-	) => {
-		setTablePropertiesTarget({ connectionId, table });
-		setTablePropertiesDialogOpen(true);
-	};
+	const handleTableQuickAction = useCallback(
+		async (
+			action: TableQuickSqlAction,
+			connectionId: string,
+			table: TableInfo,
+		) => {
+			if (action === "tableProperties") {
+				setTablePropertiesTarget({ connectionId, table });
+				setTablePropertiesDialogOpen(true);
+				return;
+			}
+			if (action === "addRow") {
+				setSelectedTable(table);
+				setAddRowDialog({ connectionId, table });
+				return;
+			}
+
+			setSelectedTable(table);
+
+			const props = await queryClient.fetchQuery({
+				queryKey: queryKeys.tableProperties(connectionId, table),
+				queryFn: () => veloxDbRepository.getTableProperties(connectionId, table),
+			});
+
+			const pk = props
+				.filter((c) => c.isPrimaryKey)
+				.map((c) => c.columnName);
+			const insertCols = props
+				.filter(isInsertFormColumn)
+				.map((c) => c.columnName);
+
+			switch (action) {
+				case "selectAll":
+					queryWorkspaceRef.current?.appendQuerySql(buildSelectAllSql(table));
+					break;
+				case "selectCount":
+					queryWorkspaceRef.current?.appendQuerySql(buildSelectCountSql(table));
+					break;
+				case "insertTemplate":
+					queryWorkspaceRef.current?.appendQuerySql(
+						buildInsertTemplateSql(table, insertCols),
+					);
+					break;
+				case "updateTemplate":
+					queryWorkspaceRef.current?.appendQuerySql(
+						buildUpdateTemplateSql(table, pk),
+					);
+					break;
+				case "deleteTemplate":
+					queryWorkspaceRef.current?.appendQuerySql(
+						buildDeleteTemplateSql(table, pk),
+					);
+					break;
+				default:
+					break;
+			}
+		},
+		[queryClient],
+	);
 
 	const handleSelectConnection = (nextConnection: ConnectionSummary) => {
 		if (connection?.id === nextConnection.id) {
@@ -373,7 +443,7 @@ function VeloxApp() {
 									onOpenConnection={() => setConnectionDialogOpen(true)}
 									onSelectConnection={handleSelectConnection}
 									onSelectTable={handleSelectTable}
-									onOpenTableProperties={handleOpenTableProperties}
+									onTableQuickAction={handleTableQuickAction}
 									onToggleCollapsed={() => setIsSidebarCollapsed(true)}
 								/>
 							)}
@@ -475,6 +545,16 @@ function VeloxApp() {
 						onSaveResultEdits={handleSaveResultEdits}
 						onFocusedTabCapabilitiesChange={setFocusedQueryCaps}
 						onActivateConnectionForTab={handleActivateConnectionForTab}
+						onOpenAddRow={
+							connection?.id && selectedTable
+								? () => {
+										setAddRowDialog({
+											connectionId: connection.id,
+											table: selectedTable,
+										});
+									}
+								: undefined
+						}
 					/>
 				) : connection?.id ? (
 					<ModelWorkspace
@@ -513,6 +593,32 @@ function VeloxApp() {
 				}}
 				connectionId={tablePropertiesTarget?.connectionId}
 				table={tablePropertiesTarget?.table ?? null}
+			/>
+
+			<AddRowDialog
+				key={
+					addRowDialog
+						? `${addRowDialog.connectionId}-${addRowDialog.table.schema}-${addRowDialog.table.name}`
+						: "add-row-closed"
+				}
+				open={addRowDialog !== null}
+				onOpenChange={(open) => {
+					if (!open) setAddRowDialog(null);
+				}}
+				connectionId={addRowDialog?.connectionId}
+				table={addRowDialog?.table ?? null}
+				onInserted={() => {
+					void queryClient.invalidateQueries({
+						queryKey: queryKeys.tableProperties(
+							addRowDialog?.connectionId,
+							addRowDialog?.table ?? null,
+						),
+					});
+					void queryClient.invalidateQueries({
+						queryKey: queryKeys.schema(connection?.id, addRowDialog?.table ?? null),
+					});
+					queryWorkspaceRef.current?.refreshFocusedResults();
+				}}
 			/>
 
 			<CommandPalette
