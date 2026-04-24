@@ -41,6 +41,33 @@ type TableContextMenuTarget = {
 
 type SidebarContextMenuTarget = ConnectionContextMenuTarget | TableContextMenuTarget
 
+type ConnectionContextMenuActionId =
+  | 'toggleConnection'
+  | 'refreshConnection'
+  | 'renameConnection'
+  | 'disconnectConnection'
+
+type TableContextMenuActionId =
+  | 'selectTable'
+  | 'toggleFields'
+  | 'refreshTable'
+  | 'renameTable'
+  | 'deleteTable'
+  | 'selectAll'
+  | 'selectCount'
+  | 'insertTemplate'
+  | 'updateTemplate'
+  | 'deleteTemplate'
+  | 'addRow'
+  | 'tableProperties'
+
+type ContextMenuAction = {
+  id: ConnectionContextMenuActionId | TableContextMenuActionId
+  label: string
+  group: 'primary' | 'secondary' | 'danger'
+  disabled?: boolean
+}
+
 type TableSearchNeedles = {
   fullNeedleLower: string
   schemaNeedleLower: string
@@ -134,6 +161,12 @@ type ConnectionsSidebarTreeProps = {
     connectionId: string,
     table: TableInfo,
   ) => void | Promise<void>
+  onRefreshConnection: (connection: ConnectionSummary) => void | Promise<void>
+  onRefreshTable: (connectionId: string, table: TableInfo) => void | Promise<void>
+  onRenameConnection?: (connection: ConnectionSummary) => void | Promise<void>
+  onDisconnectConnection?: (connection: ConnectionSummary) => void | Promise<void>
+  onRenameTable?: (connectionId: string, table: TableInfo) => void | Promise<void>
+  onDeleteTable?: (connectionId: string, table: TableInfo) => void | Promise<void>
   onToggleCollapsed: () => void
 }
 
@@ -314,6 +347,12 @@ export function ConnectionsSidebarTree({
   onSelectConnection,
   onSelectTable,
   onTableQuickAction,
+  onRefreshConnection,
+  onRefreshTable,
+  onRenameConnection,
+  onDisconnectConnection,
+  onRenameTable,
+  onDeleteTable,
   onToggleCollapsed,
 }: ConnectionsSidebarTreeProps) {
   const [isTablesPanelExpanded, setIsTablesPanelExpanded] = useState(true)
@@ -445,6 +484,178 @@ export function ConnectionsSidebarTree({
   const tableContextMenuTarget =
     contextMenu && isTableContextMenuTarget(contextMenu.target) ? contextMenu.target : null
 
+  const connectionContextMenuActions = useMemo<ContextMenuAction[]>(() => {
+    if (!connectionContextMenuTarget) return []
+
+    const isActive = activeConnectionId === connectionContextMenuTarget.connection.id
+    const toggleLabel = isActive
+      ? isTablesPanelExpanded
+        ? isSearching
+          ? 'Tables expanded (search)'
+          : 'Collapse tables'
+        : 'Expand tables'
+      : 'Activate connection'
+
+    return [
+      {
+        id: 'toggleConnection',
+        label: toggleLabel,
+        group: 'primary',
+        disabled: isActivatingConnection,
+      },
+      {
+        id: 'refreshConnection',
+        label: 'Refresh',
+        group: 'primary',
+      },
+      {
+        id: 'renameConnection',
+        label: 'Rename',
+        group: 'secondary',
+        disabled: !onRenameConnection,
+      },
+      {
+        id: 'disconnectConnection',
+        label: 'Disconnect',
+        group: 'danger',
+        disabled: !onDisconnectConnection,
+      },
+    ]
+  }, [
+    activeConnectionId,
+    connectionContextMenuTarget,
+    isActivatingConnection,
+    isSearching,
+    isTablesPanelExpanded,
+    onDisconnectConnection,
+    onRenameConnection,
+  ])
+
+  const tableContextMenuActions = useMemo<ContextMenuAction[]>(() => {
+    if (!tableContextMenuTarget) return []
+
+    return [
+      { id: 'selectTable', label: 'Select table (run preview)', group: 'primary' },
+      {
+        id: 'toggleFields',
+        label: tableContextMenuTarget.isExpanded ? 'Hide fields' : 'Show fields',
+        group: 'primary',
+      },
+      { id: 'refreshTable', label: 'Refresh', group: 'primary' },
+      {
+        id: 'renameTable',
+        label: 'Rename',
+        group: 'secondary',
+        disabled: !onRenameTable,
+      },
+      {
+        id: 'deleteTable',
+        label: 'Delete',
+        group: 'danger',
+        disabled: !onDeleteTable,
+      },
+      { id: 'selectAll', label: 'SELECT * (LIMIT)', group: 'secondary' },
+      { id: 'selectCount', label: 'SELECT COUNT(*)', group: 'secondary' },
+      { id: 'insertTemplate', label: 'INSERT template', group: 'secondary' },
+      { id: 'updateTemplate', label: 'UPDATE template', group: 'secondary' },
+      { id: 'deleteTemplate', label: 'DELETE template', group: 'secondary' },
+      { id: 'addRow', label: 'Add row…', group: 'secondary' },
+      { id: 'tableProperties', label: 'Table properties', group: 'secondary' },
+    ]
+  }, [onDeleteTable, onRenameTable, tableContextMenuTarget])
+
+  const handleContextMenuAction = useCallback(
+    (action: ContextMenuAction['id']) => {
+      if (!contextMenu) return
+
+      if (contextMenu.target.kind === 'connection') {
+        const { connection } = contextMenu.target
+        const isActive = activeConnectionId === connection.id
+
+        switch (action) {
+          case 'toggleConnection':
+            if (isActive) {
+              if (isSearching) {
+                setIsTablesPanelExpanded(true)
+              } else {
+                setIsTablesPanelExpanded((prev) => !prev)
+              }
+            } else {
+              setIsTablesPanelExpanded(true)
+              onSelectConnection(connection)
+            }
+            break
+          case 'refreshConnection':
+            void onRefreshConnection(connection)
+            break
+          case 'renameConnection':
+            if (onRenameConnection) {
+              void onRenameConnection(connection)
+            }
+            break
+          case 'disconnectConnection':
+            if (onDisconnectConnection) {
+              void onDisconnectConnection(connection)
+            }
+            break
+          default:
+            break
+        }
+      } else {
+        const { connectionId, table, onToggleExpanded } = contextMenu.target
+
+        switch (action) {
+          case 'selectTable':
+            onSelectTable(table)
+            break
+          case 'toggleFields':
+            onToggleExpanded?.()
+            break
+          case 'refreshTable':
+            void onRefreshTable(connectionId, table)
+            break
+          case 'renameTable':
+            if (onRenameTable) {
+              void onRenameTable(connectionId, table)
+            }
+            break
+          case 'deleteTable':
+            if (onDeleteTable) {
+              void onDeleteTable(connectionId, table)
+            }
+            break
+          case 'selectAll':
+          case 'selectCount':
+          case 'insertTemplate':
+          case 'updateTemplate':
+          case 'deleteTemplate':
+          case 'addRow':
+          case 'tableProperties':
+            void onTableQuickAction(action, connectionId, table)
+            break
+          default:
+            break
+        }
+      }
+
+      setContextMenu(null)
+    },
+    [
+      activeConnectionId,
+      contextMenu,
+      isSearching,
+      onDeleteTable,
+      onDisconnectConnection,
+      onRefreshConnection,
+      onRefreshTable,
+      onRenameConnection,
+      onRenameTable,
+      onSelectConnection,
+      onSelectTable,
+      onTableQuickAction,
+    ],
+  )
+
   const renderTablesPanelForConnection = (connection: ConnectionSummary) => {
     if (!isTablesPanelExpanded) return null
 
@@ -558,168 +769,51 @@ export function ConnectionsSidebarTree({
             role="menu"
             aria-label="Sidebar context menu"
           >
-            {connectionContextMenuTarget ? (
-              <button
-                type="button"
-                className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-60"
-                onClick={() => {
-                  const isActive =
-                    activeConnectionId === connectionContextMenuTarget.connection.id
-                  if (isActive) {
-                    if (isSearching) {
-                      setIsTablesPanelExpanded(true)
-                    } else {
-                      setIsTablesPanelExpanded((prev) => !prev)
-                    }
-                  } else {
-                    setIsTablesPanelExpanded(true)
-                    onSelectConnection(connectionContextMenuTarget.connection)
-                  }
-                  setContextMenu(null)
-                }}
-                disabled={isActivatingConnection}
-              >
-                <span>
-                  {activeConnectionId === connectionContextMenuTarget.connection.id
-                    ? isTablesPanelExpanded
-                      ? isSearching
-                        ? 'Tables expanded (search)'
-                        : 'Collapse tables'
-                      : 'Expand tables'
-                    : 'Activate connection'}
-                </span>
-              </button>
-            ) : null}
+            {connectionContextMenuTarget
+              ? connectionContextMenuActions.map((action, index) => (
+                  <div key={action.id}>
+                    {index > 0 && action.group !== connectionContextMenuActions[index - 1]?.group ? (
+                      <div className="my-1 h-px bg-sidebar-border/60" />
+                    ) : null}
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-60',
+                        action.group === 'danger'
+                          ? 'text-destructive hover:bg-destructive/10 hover:text-destructive'
+                          : 'text-sidebar-foreground/90',
+                      )}
+                      onClick={() => handleContextMenuAction(action.id)}
+                      disabled={action.disabled}
+                    >
+                      <span>{action.label}</span>
+                    </button>
+                  </div>
+                ))
+              : null}
 
-            {tableContextMenuTarget ? (
-              <>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    onSelectTable(tableContextMenuTarget.table)
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>Select table (run preview)</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    tableContextMenuTarget.onToggleExpanded?.()
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>{tableContextMenuTarget.isExpanded ? 'Hide fields' : 'Show fields'}</span>
-                </button>
-
-                <div className="my-1 h-px bg-sidebar-border/60" /> 
-
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    void onTableQuickAction(
-                      'selectAll',
-                      tableContextMenuTarget.connectionId,
-                      tableContextMenuTarget.table,
-                    )
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>SELECT * (LIMIT)</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    void onTableQuickAction(
-                      'selectCount',
-                      tableContextMenuTarget.connectionId,
-                      tableContextMenuTarget.table,
-                    )
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>SELECT COUNT(*)</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    void onTableQuickAction(
-                      'insertTemplate',
-                      tableContextMenuTarget.connectionId,
-                      tableContextMenuTarget.table,
-                    )
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>INSERT template</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    void onTableQuickAction(
-                      'updateTemplate',
-                      tableContextMenuTarget.connectionId,
-                      tableContextMenuTarget.table,
-                    )
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>UPDATE template</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    void onTableQuickAction(
-                      'deleteTemplate',
-                      tableContextMenuTarget.connectionId,
-                      tableContextMenuTarget.table,
-                    )
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>DELETE template</span>
-                </button>
-
-                <div className="my-1 h-px bg-sidebar-border/60" />
-
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    void onTableQuickAction(
-                      'addRow',
-                      tableContextMenuTarget.connectionId,
-                      tableContextMenuTarget.table,
-                    )
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>Add row…</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                  onClick={() => {
-                    void onTableQuickAction(
-                      'tableProperties',
-                      tableContextMenuTarget.connectionId,
-                      tableContextMenuTarget.table,
-                    )
-                    setContextMenu(null)
-                  }}
-                >
-                  <span>Table properties</span>
-                </button>
-              </>
-            ) : null}
+            {tableContextMenuTarget
+              ? tableContextMenuActions.map((action, index) => (
+                  <div key={action.id}>
+                    {index > 0 && action.group !== tableContextMenuActions[index - 1]?.group ? (
+                      <div className="my-1 h-px bg-sidebar-border/60" />
+                    ) : null}
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-60',
+                        action.group === 'danger'
+                          ? 'text-destructive hover:bg-destructive/10 hover:text-destructive'
+                          : 'text-sidebar-foreground/90',
+                      )}
+                      onClick={() => handleContextMenuAction(action.id)}
+                      disabled={action.disabled}
+                    >
+                      <span>{action.label}</span>
+                    </button>
+                  </div>
+                ))
+              : null}
           </div>
         ) : null}
 

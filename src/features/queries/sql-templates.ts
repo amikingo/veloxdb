@@ -48,3 +48,13 @@ export function buildDeleteTemplateSql(table: TableInfo, primaryKeyColumns: stri
     .join(' AND ')
   return `DELETE FROM ${q}\nWHERE ${where};`
 }
+
+export function buildRenameTableSql(table: TableInfo, nextTableName = 'new_table_name'): string {
+  const q = qualifiedTableName(table)
+  return `ALTER TABLE ${q}\nRENAME TO ${quoteIdent(nextTableName)};`
+}
+
+export function buildDropTableSql(table: TableInfo): string {
+  const q = qualifiedTableName(table)
+  return `DROP TABLE ${q};`
+}

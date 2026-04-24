@@ -33,8 +33,10 @@ import {
 import { useSaveResultEditsMutation } from "@/features/queries/queries";
 import { notifyError } from "@/lib/error-notifier";
 import {
+	buildDropTableSql,
 	buildDeleteTemplateSql,
 	buildInsertTemplateSql,
+	buildRenameTableSql,
 	buildSelectAllSql,
 	buildSelectCountSql,
 	buildUpdateTemplateSql,
@@ -334,6 +336,114 @@ function VeloxApp() {
 		activateConnectionMutation.mutate(nextConnection.id);
 	};
 
+	const handleRefreshConnection = useCallback(
+		(connectionTarget: ConnectionSummary) => {
+			void queryClient.invalidateQueries({ queryKey: queryKeys.connections() });
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.tables(connectionTarget.id),
+			});
+			void queryClient.refetchQueries({
+				queryKey: queryKeys.tables(connectionTarget.id),
+				type: "active",
+			});
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.foreignKeys(connectionTarget.id),
+			});
+
+			if (connection?.id === connectionTarget.id) {
+				void queryClient.invalidateQueries({
+					queryKey: queryKeys.schema(connectionTarget.id, selectedTable),
+				});
+				void queryClient.refetchQueries({
+					queryKey: queryKeys.schema(connectionTarget.id, selectedTable),
+					type: "active",
+				});
+				void queryClient.invalidateQueries({
+					queryKey: queryKeys.tableProperties(connectionTarget.id, selectedTable),
+				});
+				void queryClient.refetchQueries({
+					queryKey: queryKeys.tableProperties(connectionTarget.id, selectedTable),
+					type: "active",
+				});
+				queryWorkspaceRef.current?.refreshFocusedResults();
+			}
+		},
+		[connection?.id, queryClient, selectedTable],
+	);
+
+	const handleRefreshTable = useCallback(
+		(connectionId: string, table: TableInfo) => {
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.tables(connectionId),
+			});
+			void queryClient.refetchQueries({
+				queryKey: queryKeys.tables(connectionId),
+				type: "active",
+			});
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.schema(connectionId, table),
+			});
+			void queryClient.refetchQueries({
+				queryKey: queryKeys.schema(connectionId, table),
+				type: "active",
+			});
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.tableProperties(connectionId, table),
+			});
+			void queryClient.refetchQueries({
+				queryKey: queryKeys.tableProperties(connectionId, table),
+				type: "active",
+			});
+			void queryClient.invalidateQueries({
+				queryKey: queryKeys.tableIndexes(connectionId, table),
+			});
+			void queryClient.refetchQueries({
+				queryKey: queryKeys.tableIndexes(connectionId, table),
+				type: "active",
+			});
+
+			if (
+				connection?.id === connectionId &&
+				selectedTable?.schema === table.schema &&
+				selectedTable?.name === table.name
+			) {
+				queryWorkspaceRef.current?.refreshFocusedResults();
+			}
+		},
+		[connection?.id, queryClient, selectedTable?.name, selectedTable?.schema],
+	);
+
+	const handleRenameTableRequest = useCallback(
+		(_connectionId: string, table: TableInfo) => {
+			setSelectedTable(table);
+			queryWorkspaceRef.current?.appendQuerySql(buildRenameTableSql(table));
+		},
+		[],
+	);
+
+	const handleDeleteTableRequest = useCallback(
+		(_connectionId: string, table: TableInfo) => {
+			setSelectedTable(table);
+			queryWorkspaceRef.current?.appendQuerySql(buildDropTableSql(table));
+		},
+		[],
+	);
+
+	const handleDisconnectConnectionRequest = useCallback(
+		(connectionTarget: ConnectionSummary) => {
+			if (connection?.id !== connectionTarget.id) {
+				return;
+			}
+
+			setConnection(null);
+			setSelectedTable(null);
+			setTableSearch("");
+			setTablePropertiesDialogOpen(false);
+			setTablePropertiesTarget(null);
+		},
+		[connection?.id],
+	);
+
 	const handleActivateConnectionForTab = useCallback(
 		(connectionId: string) => {
 			if (connection?.id === connectionId) {
@@ -476,6 +586,11 @@ function VeloxApp() {
 									onSelectConnection={handleSelectConnection}
 									onSelectTable={handleSelectTable}
 									onTableQuickAction={handleTableQuickAction}
+									onRefreshConnection={handleRefreshConnection}
+									onRefreshTable={handleRefreshTable}
+									onDisconnectConnection={handleDisconnectConnectionRequest}
+									onRenameTable={handleRenameTableRequest}
+									onDeleteTable={handleDeleteTableRequest}
 									onToggleCollapsed={() => setIsSidebarCollapsed(true)}
 								/>
 							)}
