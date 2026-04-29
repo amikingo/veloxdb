@@ -39,6 +39,12 @@ export class TauriVeloxDbRepository implements VeloxDbRepository {
     )
   }
 
+  async disconnectDb(connectionId: string): Promise<void> {
+    return invokeCommand('disconnect_db', () =>
+      invoke<void>('disconnect_db', { connectionId }),
+    )
+  }
+
   async listConnections(): Promise<ConnectionSummary[]> {
     return invokeCommand('list_connections', () =>
       invoke<ConnectionSummary[]>('list_connections_command'),

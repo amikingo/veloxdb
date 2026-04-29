@@ -42,6 +42,7 @@ export function useConnectMutation(options: UseConnectMutationOptions = {}) {
         user: input.user,
         connectedAt: new Date().toISOString(),
         sslMode: input.sslMode,
+        sshConfig: input.sshConfig ?? null,
       }
 
       queryClient.setQueryData<ConnectionSummary[]>(queryKeys.connections(), (current) => {
@@ -116,6 +117,33 @@ export function useActivateConnectionMutation(
 
       void queryClient.invalidateQueries({ queryKey: queryKeys.connections() })
       options.onSuccess?.(nextConnection)
+    },
+  })
+}
+
+type UseDisconnectMutationOptions = {
+  onSuccess?: (connectionId: string) => void
+  onError?: (error: unknown, connectionId: string) => void
+}
+
+export function useDisconnectMutation(options: UseDisconnectMutationOptions = {}) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (connectionId: string) =>
+      veloxDbRepository.disconnectDb(connectionId),
+    onSuccess: (_result, connectionId) => {
+      queryClient.setQueryData<ConnectionSummary[]>(
+        queryKeys.connections(),
+        (current) => {
+          const existing = current ?? []
+          return existing.filter((c) => c.id !== connectionId)
+        },
+      )
+      options.onSuccess?.(connectionId)
+    },
+    onError: (error, connectionId) => {
+      options.onError?.(error, connectionId)
     },
   })
 }

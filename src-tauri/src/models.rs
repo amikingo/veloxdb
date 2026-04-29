@@ -19,6 +19,47 @@ fn default_connection_ssl_mode() -> ConnectionSslMode {
     ConnectionSslMode::Prefer
 }
 
+fn default_ssh_port() -> u16 {
+    22
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SshAuthMethod {
+    #[default]
+    KeyFile,
+    Password,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    pub host: String,
+    #[serde(default = "default_ssh_port")]
+    pub port: u16,
+    pub user: String,
+    #[serde(default)]
+    pub auth_method: SshAuthMethod,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private_key_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub passphrase: Option<String>,
+}
+
+impl SshConfig {
+    pub fn is_active(&self) -> bool {
+        self.enabled
+            && !self.host.is_empty()
+            && !self.user.is_empty()
+            && (self.auth_method != SshAuthMethod::Password
+                || self.password.as_ref().map_or(false, |p| !p.is_empty()))
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionInput {
@@ -31,6 +72,8 @@ pub struct ConnectionInput {
     pub password: String,
     #[serde(default = "default_connection_ssl_mode")]
     pub ssl_mode: ConnectionSslMode,
+    #[serde(default)]
+    pub ssh_config: Option<SshConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,6 +89,8 @@ pub struct StoredConnection {
     pub connected_at: String,
     #[serde(default = "default_connection_ssl_mode")]
     pub ssl_mode: ConnectionSslMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh_config: Option<SshConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +105,8 @@ pub struct ConnectionSummary {
     pub connected_at: String,
     #[serde(default = "default_connection_ssl_mode")]
     pub ssl_mode: ConnectionSslMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh_config: Option<SshConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -266,6 +313,7 @@ impl StoredConnection {
             password: input.password,
             connected_at: timestamp_string(),
             ssl_mode: input.ssl_mode,
+            ssh_config: input.ssh_config,
         }
     }
 
@@ -279,6 +327,21 @@ impl StoredConnection {
             user: self.user.clone(),
             connected_at: self.connected_at.clone(),
             ssl_mode: self.ssl_mode,
+            ssh_config: self.ssh_config.clone(),
+        }
+    }
+
+    pub fn to_input(&self) -> ConnectionInput {
+        ConnectionInput {
+            id: Some(self.id.clone()),
+            name: self.name.clone(),
+            host: self.host.clone(),
+            port: self.port,
+            database: self.database.clone(),
+            user: self.user.clone(),
+            password: self.password.clone(),
+            ssl_mode: self.ssl_mode,
+            ssh_config: self.ssh_config.clone(),
         }
     }
 }

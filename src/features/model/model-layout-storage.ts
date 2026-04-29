@@ -229,13 +229,16 @@ export function ensurePositions(
   keys: TableKey[],
   existing: Record<TableKey, { x: number; y: number }>,
 ): Record<TableKey, { x: number; y: number }> {
-  const next = { ...existing }
-  let idx = Object.keys(next).length
+  const missing: TableKey[] = []
   for (const key of keys) {
-    if (next[key] == null) {
-      next[key] = gridPositionForIndex(idx)
-      idx += 1
-    }
+    if (existing[key] == null) missing.push(key)
+  }
+  if (missing.length === 0) return existing
+  const next = { ...existing }
+  let idx = Object.keys(existing).length
+  for (const key of missing) {
+    next[key] = gridPositionForIndex(idx)
+    idx += 1
   }
   return next
 }

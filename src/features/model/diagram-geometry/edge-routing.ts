@@ -12,6 +12,7 @@ export type RoutedDiagramEdge = {
   toKey: TableKey
   fromColumn: string
   toColumn: string
+  label?: string
 }
 
 function tableMidY(
@@ -121,6 +122,7 @@ export function buildRoutedDiagramEdges(params: {
       toKey,
       fromColumn: fk.fromColumn,
       toColumn: fk.toColumn,
+      label: `${fk.fromColumn} → ${fk.toColumn}`,
     })
   }
 
@@ -158,6 +160,7 @@ export function buildRoutedDiagramEdges(params: {
       toKey: pfk.toKey,
       fromColumn: pfk.fromColumn,
       toColumn: pfk.toColumn,
+      label: pfk.constraintName ?? `${pfk.fromColumn} → ${pfk.toColumn}`,
     })
   }
 

@@ -22,6 +22,7 @@ import {
 	useActivateConnectionMutation,
 	useConnectionsQuery,
 	useConnectMutation,
+	useDisconnectMutation,
 } from "@/features/connections/queries";
 import { ModelWorkspace } from "@/features/model/components/ModelWorkspace";
 import { readOnboardingCompleted } from "@/features/onboarding/constants";
@@ -176,7 +177,7 @@ function VeloxApp() {
 		},
 	});
 
-	const activateConnectionMutation = useActivateConnectionMutation({
+	const 	activateConnectionMutation = useActivateConnectionMutation({
 		onError: (error) => {
 			notifyError(error, { category: "connection", force: true });
 		},
@@ -190,6 +191,12 @@ function VeloxApp() {
 			queueMicrotask(() => {
 				queryWorkspaceRef.current?.setActiveTabConnection(nextConnection.id);
 			});
+		},
+	});
+
+	const disconnectMutation = useDisconnectMutation({
+		onError: (error) => {
+			notifyError(error, { category: "connection", force: true });
 		},
 	});
 
@@ -444,17 +451,17 @@ function VeloxApp() {
 
 	const handleDisconnectConnectionRequest = useCallback(
 		(connectionTarget: ConnectionSummary) => {
-			if (connection?.id !== connectionTarget.id) {
-				return;
-			}
+			disconnectMutation.mutate(connectionTarget.id);
 
-			setConnection(null);
-			setSelectedTable(null);
-			setTableSearch("");
-			setTablePropertiesDialogOpen(false);
-			setTablePropertiesTarget(null);
+			if (connection?.id === connectionTarget.id) {
+				setConnection(null);
+				setSelectedTable(null);
+				setTableSearch("");
+				setTablePropertiesDialogOpen(false);
+				setTablePropertiesTarget(null);
+			}
 		},
-		[connection?.id],
+		[connection?.id, disconnectMutation],
 	);
 
 	const handleActivateConnectionForTab = useCallback(
@@ -717,18 +724,20 @@ function VeloxApp() {
 						}
 					/>
 				) : connection?.id ? (
-					<ModelWorkspace
-						key={connection.id}
-						connectionId={connection.id}
-						defaultDatabaseName={connection.database}
-						isDark={isDark}
-						tables={tablesForUi}
-						tablesErrorMessage={
-							tablesQuery.isError ? tablesErrorMessage : undefined
-						}
-						isTablesLoading={tablesQuery.isLoading}
-						selectedTable={selectedTable}
-					/>
+					<ErrorBoundary>
+						<ModelWorkspace
+							key={connection.id}
+							connectionId={connection.id}
+							defaultDatabaseName={connection.database}
+							isDark={isDark}
+							tables={tablesForUi}
+							tablesErrorMessage={
+								tablesQuery.isError ? tablesErrorMessage : undefined
+							}
+							isTablesLoading={tablesQuery.isLoading}
+							selectedTable={selectedTable}
+						/>
+					</ErrorBoundary>
 				) : (
 					<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
 						Connect to a database to use the model workspace.

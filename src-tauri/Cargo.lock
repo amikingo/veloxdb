@@ -81,6 +81,7 @@ version = "0.1.0"
 dependencies = [
  "deadpool-postgres",
  "log",
+ "rand 0.8.5",
  "rustls",
  "serde",
  "serde_json",

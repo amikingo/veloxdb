@@ -1,11 +1,15 @@
 import { useQueries, useQueryClient } from '@tanstack/react-query'
+import { useShallow } from 'zustand/react/shallow'
 import {
   AlignBottomIcon,
   AlignLeftIcon,
   AlignRightIcon,
   AlignTopIcon,
+  ArrowCounterClockwiseIcon,
+  ArrowClockwiseIcon,
   ArrowsClockwiseIcon,
   ArrowsInSimpleIcon,
+  ArrowsOutIcon,
   CursorIcon,
   DownloadSimpleIcon,
   FilePdfIcon,
@@ -28,13 +32,6 @@ import { veloxDbRepository } from '@/data/repositories'
 import type { ColumnInfo, TableInfo } from '@/data/types'
 import {
   applyEntireModel,
-  type ColumnIdentityOverride,
-  type ColumnOverride,
-  type PendingModelColumn,
-  type PendingModelForeignKey,
-  type PendingModelRlsPolicy,
-  type PendingModelRule,
-  type PendingModelTrigger,
   type TableIdentityDraft,
 } from '@/features/model/apply-entire-model'
 import { DdlReviewDialog } from '@/features/model/components/DdlReviewDialog'
@@ -50,6 +47,12 @@ import {
   snapPoint,
 } from '@/features/model/diagram-geometry/snap'
 import { topologicalLayoutOrder } from '@/features/model/diagram-geometry/topological-layout-order'
+import { computeDagreLayout } from '@/features/model/diagram-geometry/dagre-layout'
+import {
+  buildMigrationSummary,
+  buildMigrationSql,
+} from '@/features/model/migration-preview'
+import { MigrationPreviewDialog } from '@/features/model/components/MigrationPreviewDialog'
 import {
   deleteDiagramViewLayout,
   duplicateLayoutSnapshotForNewView,
@@ -67,14 +70,13 @@ import {
   DEFAULT_DIAGRAM_VIEW_ID,
   tableKey,
   type ColumnDetailLevel,
-  type DiagramGroup,
   type DiagramLayoutSnapshot,
   type TableKey,
-  type ViewportState,
 } from '@/features/model/model-types'
 import { useForeignKeysQuery } from '@/features/model/queries'
 import { useContainerSize } from '@/features/model/use-container-size'
-import { useDiagramInteraction } from '@/features/model/use-diagram-interaction'
+import { useCanvasStore } from '@/features/model/state/canvas-store'
+import { canQueueRelationship } from '@/features/model/relationship-validation'
 import { rgbCssToHex } from '@/lib/contrast-text-for-bg'
 import { cn } from '@/lib/utils'
 
@@ -112,9 +114,20 @@ export function ModelWorkspace({
     return { vr, aid, snap }
   }, [connectionId])
 
+  const diagramWrapRef = useRef<HTMLDivElement>(null)
+  const diagramAreaSize = useContainerSize(diagramWrapRef)
+
+  const hadStoredLayout =
+    boot.snap != null && (boot.snap.onCanvas.length > 0 || Object.keys(boot.snap.positions).length > 0)
+  const hydrateFromConnection = useCanvasStore((s) => s.hydrateFromConnection)
   const {
-    tool: diagramTool,
-    setTool: setDiagramTool,
+    hydrated,
+    storeConnectionId,
+    viewsRegistry,
+    setViewsRegistry,
+    activeViewId,
+    diagramTool,
+    setDiagramTool,
     selectedKeys,
     setSelectedKeys,
     primaryKey,
@@ -123,60 +136,140 @@ export function ModelWorkspace({
     clearSelection,
     applyMarquee,
     selectSingleFromCatalog,
-  } = useDiagramInteraction(() => {
-    const t = boot.snap?.diagramTool
-    return t === 'pan' || t === 'connect' || t === 'select' ? t : 'select'
-  })
+    snapToGrid,
+    setSnapToGrid,
+    onCanvas,
+    setOnCanvas,
+    positions,
+    setPositions,
+    viewport,
+    setViewport,
+    modelTitle,
+    setModelTitle,
+    headerColorsByKey,
+    setHeaderColorsByKey,
+    columnDetail,
+    setColumnDetail,
+    diagramGroups,
+    setDiagramGroups,
+    modelTab,
+    setModelTab,
+    identityDraftByKey,
+    setIdentityDraftByKey,
+    columnOverridesByKey,
+    setColumnOverridesByKey,
+    columnIdentityOverridesByKey,
+    setColumnIdentityOverridesByKey,
+    pendingAddColumnsByKey,
+    setPendingAddColumnsByKey,
+    pendingForeignKeys,
+    setPendingForeignKeys,
+    selectedEdge,
+    setSelectedEdge,
+    pendingRules,
+    setPendingRules,
+    pendingTriggers,
+    setPendingTriggers,
+    pendingRlsPolicies,
+    setPendingRlsPolicies,
+    applyQuickColumnEdit,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+  } = useCanvasStore(
+    useShallow((s) => ({
+      hydrated: s.hydrated,
+      storeConnectionId: s.connectionId,
+      viewsRegistry: s.viewsRegistry,
+      setViewsRegistry: s.setViewsRegistry,
+      activeViewId: s.activeViewId,
+      diagramTool: s.diagramTool,
+      setDiagramTool: s.setDiagramTool,
+      selectedKeys: s.selectedKeys,
+      setSelectedKeys: s.setSelectedKeys,
+      primaryKey: s.primaryKey,
+      replaceSelection: s.replaceSelection,
+      selectTable: s.selectTable,
+      clearSelection: s.clearSelection,
+      applyMarquee: s.applyMarquee,
+      selectSingleFromCatalog: s.selectSingleFromCatalog,
+      snapToGrid: s.snapToGrid,
+      setSnapToGrid: s.setSnapToGrid,
+      onCanvas: s.onCanvas,
+      setOnCanvas: s.setOnCanvas,
+      positions: s.positions,
+      setPositions: s.setPositions,
+      viewport: s.viewport,
+      setViewport: s.setViewport,
+      modelTitle: s.modelTitle,
+      setModelTitle: s.setModelTitle,
+      headerColorsByKey: s.headerColorsByKey,
+      setHeaderColorsByKey: s.setHeaderColorsByKey,
+      columnDetail: s.columnDetail,
+      setColumnDetail: s.setColumnDetail,
+      diagramGroups: s.diagramGroups,
+      setDiagramGroups: s.setDiagramGroups,
+      modelTab: s.modelTab,
+      setModelTab: s.setModelTab,
+      identityDraftByKey: s.identityDraftByKey,
+      setIdentityDraftByKey: s.setIdentityDraftByKey,
+      columnOverridesByKey: s.columnOverridesByKey,
+      setColumnOverridesByKey: s.setColumnOverridesByKey,
+      columnIdentityOverridesByKey: s.columnIdentityOverridesByKey,
+      setColumnIdentityOverridesByKey: s.setColumnIdentityOverridesByKey,
+      pendingAddColumnsByKey: s.pendingAddColumnsByKey,
+      setPendingAddColumnsByKey: s.setPendingAddColumnsByKey,
+      pendingForeignKeys: s.pendingForeignKeys,
+      setPendingForeignKeys: s.setPendingForeignKeys,
+      selectedEdge: s.selectedEdge,
+      setSelectedEdge: s.setSelectedEdge,
+      pendingRules: s.pendingRules,
+      setPendingRules: s.setPendingRules,
+      pendingTriggers: s.pendingTriggers,
+      setPendingTriggers: s.setPendingTriggers,
+      pendingRlsPolicies: s.pendingRlsPolicies,
+      setPendingRlsPolicies: s.setPendingRlsPolicies,
+      applyQuickColumnEdit: s.applyQuickColumnEdit,
+      canUndo: s.canUndo,
+      canRedo: s.canRedo,
+      undo: s.undo,
+      redo: s.redo,
+    })),
+  )
 
-  const diagramWrapRef = useRef<HTMLDivElement>(null)
-  const diagramAreaSize = useContainerSize(diagramWrapRef)
-
-  const [viewsRegistry, setViewsRegistry] = useState(() => boot.vr)
-  const activeViewId = viewsRegistry.activeViewId
-
-  const [hadStoredLayout] = useState(() => boot.snap !== null)
-  const [snapToGrid, setSnapToGrid] = useState(() => boot.snap?.snapToGrid !== false)
-  const [onCanvas, setOnCanvas] = useState<TableKey[]>(() => boot.snap?.onCanvas ?? [])
-  const [positions, setPositions] = useState<Record<TableKey, { x: number; y: number }>>(
-    () => boot.snap?.positions ?? {},
-  )
-  const [viewport, setViewport] = useState<ViewportState>(
-    () => boot.snap?.viewport ?? { scale: 1, x: 0, y: 0 },
-  )
-  const [modelTitle, setModelTitle] = useState(
-    () => boot.snap?.modelTitle?.trim() || defaultDatabaseName,
-  )
-  const [headerColorsByKey, setHeaderColorsByKey] = useState<Record<TableKey, string>>(
-    () => ({ ...(boot.snap?.headerColors ?? {}) }),
-  )
-  const [columnDetail, setColumnDetail] = useState<ColumnDetailLevel>(() => {
-    const c = boot.snap?.columnDetail
-    return c === 'keys' || c === 'header' ? c : 'full'
-  })
-  const [diagramGroups, setDiagramGroups] = useState<DiagramGroup[]>(
-    () => boot.snap?.diagramGroups ?? [],
-  )
+  useEffect(() => {
+    hydrateFromConnection({ connectionId, defaultDatabaseName })
+  }, [connectionId, defaultDatabaseName, hydrateFromConnection])
   const [columnRequestKeys, setColumnRequestKeys] = useState<TableKey[]>([])
-  const [modelTab, setModelTab] = useState<'diagram' | 'catalog'>('diagram')
   const [ddlOpen, setDdlOpen] = useState(false)
-  const [identityDraftByKey, setIdentityDraftByKey] = useState<Record<TableKey, TableIdentityDraft>>({})
-  const [columnOverridesByKey, setColumnOverridesByKey] = useState<
-    Record<TableKey, Record<string, ColumnOverride>>
-  >({})
-  const [columnIdentityOverridesByKey, setColumnIdentityOverridesByKey] = useState<
-    Record<TableKey, Record<string, ColumnIdentityOverride>>
-  >({})
-  const [pendingAddColumnsByKey, setPendingAddColumnsByKey] = useState<
-    Record<TableKey, PendingModelColumn[]>
-  >({})
-  const [pendingForeignKeys, setPendingForeignKeys] = useState<PendingModelForeignKey[]>([])
-  const [pendingRules, setPendingRules] = useState<PendingModelRule[]>([])
-  const [pendingTriggers, setPendingTriggers] = useState<PendingModelTrigger[]>([])
-  const [pendingRlsPolicies, setPendingRlsPolicies] = useState<PendingModelRlsPolicy[]>([])
+  const [migrationPreviewOpen, setMigrationPreviewOpen] = useState(false)
   const [applyPending, setApplyPending] = useState(false)
   const [applyError, setApplyError] = useState<string | null>(null)
 
   const fkSeedDoneRef = useRef(false)
+  const initialRecoveryDoneRef = useRef(false)
+
+  useEffect(() => {
+    initialRecoveryDoneRef.current = false
+    fkSeedDoneRef.current = false
+  }, [connectionId])
+
+  useEffect(() => {
+    const ignoredTags = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'])
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target?.isContentEditable || (target && ignoredTags.has(target.tagName))) return
+      const mod = e.metaKey || e.ctrlKey
+      if (!mod || e.altKey) return
+      if (e.key.toLowerCase() !== 'z') return
+      e.preventDefault()
+      if (e.shiftKey) redo()
+      else undo()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [redo, undo])
 
   const tablesByKey = useMemo(() => {
     const m = new Map<TableKey, TableInfo>()
@@ -185,6 +278,44 @@ export function ModelWorkspace({
     }
     return m
   }, [tables])
+
+  useEffect(() => {
+    if (initialRecoveryDoneRef.current) return
+    if (!tables.length) return
+
+    const validOnCanvas = onCanvas.filter((k) => tablesByKey.has(k))
+    if (validOnCanvas.length !== onCanvas.length) {
+      setOnCanvas(validOnCanvas)
+      setPositions((prev) => {
+        const next: Record<TableKey, { x: number; y: number }> = {}
+        for (const key of validOnCanvas) {
+          if (prev[key]) next[key] = prev[key]
+        }
+        return next
+      })
+    }
+
+    if (validOnCanvas.length === 0) {
+      const fkData = foreignKeysQuery.data ?? []
+      const fkSeed = new Set<TableKey>()
+      for (const edge of fkData) {
+        const from = `${edge.fromSchema}.${edge.fromTable}` as TableKey
+        const to = `${edge.toSchema}.${edge.toTable}` as TableKey
+        if (tablesByKey.has(from)) fkSeed.add(from)
+        if (tablesByKey.has(to)) fkSeed.add(to)
+      }
+      const fallbackKeys =
+        fkSeed.size > 0
+          ? [...fkSeed]
+          : tables.slice(0, 12).map((t) => tableKey(t))
+      if (fallbackKeys.length > 0) {
+        setOnCanvas(fallbackKeys)
+        setPositions((prev) => ensurePositions(fallbackKeys, prev))
+      }
+    }
+
+    initialRecoveryDoneRef.current = true
+  }, [foreignKeysQuery.data, onCanvas, setOnCanvas, setPositions, tables, tablesByKey])
 
   useEffect(() => {
     if (hadStoredLayout) return
@@ -205,7 +336,7 @@ export function ModelWorkspace({
       setOnCanvas(valid)
       setPositions((p) => ensurePositions(valid, p))
     })
-  }, [hadStoredLayout, foreignKeysQuery.data, tables])
+  }, [hadStoredLayout, foreignKeysQuery.data, setOnCanvas, setPositions, tables])
 
   useEffect(() => {
     if (!selectedTable) return
@@ -298,6 +429,8 @@ export function ModelWorkspace({
   }, [columnIdentityOverridesByKey, columnsByKey, pendingAddColumnsByKey])
 
   useEffect(() => {
+    if (!hydrated) return
+    if (storeConnectionId !== connectionId) return
     const t = window.setTimeout(() => {
       saveDiagramLayout(
         connectionId,
@@ -318,6 +451,7 @@ export function ModelWorkspace({
     }, 400)
     return () => window.clearTimeout(t)
   }, [
+    hydrated,
     activeViewId,
     columnDetail,
     connectionId,
@@ -329,6 +463,7 @@ export function ModelWorkspace({
     onCanvas,
     positions,
     snapToGrid,
+    storeConnectionId,
     viewsRegistry,
     viewport,
   ])
@@ -441,6 +576,30 @@ export function ModelWorkspace({
   }, [primaryKey, inspectorTable, identityDraftByKey])
 
   const selectedKeysSet = useMemo(() => new Set(selectedKeys), [selectedKeys])
+  const editedColumnNamesByKey = useMemo((): Record<TableKey, ReadonlySet<string>> => {
+    const out: Record<TableKey, ReadonlySet<string>> = {}
+    for (const key of onCanvas) {
+      const cols = effectiveColumnsByKey[key] ?? []
+      const edited = new Set<string>()
+      const overrides = columnIdentityOverridesByKey[key] ?? {}
+      for (const col of cols) {
+        const lowered = col.columnName.trim().toLowerCase()
+        for (const patch of Object.values(overrides)) {
+          if (patch.nextColumnName.trim().toLowerCase() === lowered) {
+            edited.add(col.columnName)
+          }
+        }
+      }
+      out[key] = edited
+    }
+    return out
+  }, [columnIdentityOverridesByKey, effectiveColumnsByKey, onCanvas])
+
+  const canQueueForeignKey = useCallback(
+    (input: { fromKey: TableKey; fromColumn: string; toKey: TableKey; toColumn: string }) =>
+      canQueueRelationship(input, foreignKeysQuery.data ?? [], pendingForeignKeys),
+    [foreignKeysQuery.data, pendingForeignKeys],
+  )
 
   const positionsRef = useRef(positions)
   positionsRef.current = positions
@@ -486,6 +645,37 @@ export function ModelWorkspace({
     pendingTriggers.length,
   ])
 
+  const migrationSummary = useMemo(
+    () =>
+      !isModelDirty
+        ? null
+        : buildMigrationSummary({
+            onCanvas,
+            tablesByKey,
+            identityDraftByKey,
+            columnOverridesByKey,
+            columnIdentityOverridesByKey,
+            pendingAddColumnsByKey,
+            pendingForeignKeys,
+            pendingRules,
+            pendingTriggers,
+            pendingRlsPolicies,
+          }),
+    [
+      isModelDirty,
+      onCanvas,
+      tablesByKey,
+      identityDraftByKey,
+      columnOverridesByKey,
+      columnIdentityOverridesByKey,
+      pendingAddColumnsByKey,
+      pendingForeignKeys,
+      pendingRules,
+      pendingTriggers,
+      pendingRlsPolicies,
+    ],
+  )
+
   const catalogTablesSorted = useMemo(() => {
     return [...tables].sort((a, b) => tableKey(a).localeCompare(tableKey(b)))
   }, [tables])
@@ -493,6 +683,13 @@ export function ModelWorkspace({
   const requestColumns = useCallback((key: TableKey) => {
     setColumnRequestKeys((prev) => (prev.includes(key) ? prev : [...prev, key]))
   }, [])
+
+  const handleViewportChange = useCallback(
+    (next: { x: number; y: number; scale: number }) => {
+      setViewport(next, { skipHistory: true })
+    },
+    [setViewport],
+  )
 
   const handleSelectKey = useCallback(
     (key: TableKey | null) => {
@@ -546,6 +743,9 @@ export function ModelWorkspace({
       return next
     })
     setPendingForeignKeys((prev) => prev.filter((fk) => fk.fromKey !== k && fk.toKey !== k))
+    setSelectedEdge((prev) =>
+      prev && (prev.fromKey === k || prev.toKey === k) ? null : prev,
+    )
     setPendingRules((prev) => prev.filter((row) => row.tableKey !== k))
     setPendingTriggers((prev) => prev.filter((row) => row.tableKey !== k))
     setPendingRlsPolicies((prev) => prev.filter((row) => row.tableKey !== k))
@@ -640,6 +840,7 @@ export function ModelWorkspace({
 
   const handleConnectColumns = useCallback(
     (fromKey: TableKey, fromColumn: string, toKey: TableKey, toColumn: string) => {
+      if (!canQueueForeignKey({ fromKey, fromColumn, toKey, toColumn })) return
       requestColumns(fromKey)
       requestColumns(toKey)
       setPendingForeignKeys((prev) => [
@@ -653,7 +854,7 @@ export function ModelWorkspace({
         },
       ])
     },
-    [requestColumns],
+    [canQueueForeignKey, requestColumns],
   )
 
   const applyAlign = useCallback(
@@ -680,6 +881,43 @@ export function ModelWorkspace({
       return next
     })
   }, [foreignKeysQuery.data, onCanvas, snapToGrid])
+
+  const handleAutoLayoutDagre = useCallback(() => {
+    const fkEdges = (foreignKeysQuery.data ?? []).map((fk) => ({
+      fromKey: `${fk.fromSchema}.${fk.fromTable}` as TableKey,
+      toKey: `${fk.toSchema}.${fk.toTable}` as TableKey,
+    }))
+    const pfkEdges = pendingForeignKeys.map((pfk) => ({
+      fromKey: pfk.fromKey,
+      toKey: pfk.toKey,
+    }))
+    const allEdges = [...fkEdges, ...pfkEdges]
+    const dagrePositions = computeDagreLayout({
+      tableKeys: onCanvas,
+      columnsByKey: effectiveColumnsByKey,
+      columnDetail,
+      edges: allEdges,
+    })
+    setPositions((prev) => {
+      const next = { ...prev }
+      for (const [key, pos] of Object.entries(dagrePositions)) {
+        next[key as TableKey] = snapToGrid ? snapPoint(pos) : pos
+      }
+      return next
+    })
+  }, [columnDetail, effectiveColumnsByKey, foreignKeysQuery.data, onCanvas, pendingForeignKeys, snapToGrid])
+
+  const handleDownloadMigrationSql = useCallback(() => {
+    if (!migrationSummary) return
+    const sql = buildMigrationSql(migrationSummary)
+    const blob = new Blob([sql], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `migration_${new Date().toISOString().replace(/[:.]+/g, '-').slice(0, 19)}.sql`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [migrationSummary])
 
   const handleResetViewport = useCallback(() => {
     setViewport({ scale: 1, x: 0, y: 0 })
@@ -978,6 +1216,14 @@ export function ModelWorkspace({
     )
   }
 
+  if (!isTablesLoading && tables.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
+        No tables found for this connection. Create or introspect tables first.
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2 sm:flex-row sm:items-end sm:justify-between">
@@ -1010,10 +1256,21 @@ export function ModelWorkspace({
             type="button"
             size="sm"
             className="h-8 text-xs"
-            disabled={applyPending || !isModelDirty}
-            onClick={() => void handleApplyEntireModel()}
+            disabled={!isModelDirty}
+            onClick={() => setMigrationPreviewOpen(true)}
           >
-            {applyPending ? 'Applying…' : 'Apply entire model'}
+            Review & Apply
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!isModelDirty}
+            onClick={handleDownloadMigrationSql}
+          >
+            <DownloadSimpleIcon className="mr-1 size-3.5" aria-hidden />
+            Download SQL
           </Button>
           <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setDdlOpen(true)}>
             Run DDL script…
@@ -1172,6 +1429,30 @@ export function ModelWorkspace({
                 <option value="header">Headers</option>
               </select>
               <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
+              <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">History</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Undo (Cmd/Ctrl+Z)"
+                disabled={!canUndo}
+                onClick={() => undo()}
+              >
+                <ArrowCounterClockwiseIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Redo (Shift+Cmd/Ctrl+Z)"
+                disabled={!canRedo}
+                onClick={() => redo()}
+              >
+                <ArrowClockwiseIcon className="size-4" aria-hidden />
+              </Button>
+              <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
               <span className="hidden text-[10px] font-medium text-muted-foreground sm:inline">Layout</span>
               <Button
                 type="button"
@@ -1205,6 +1486,17 @@ export function ModelWorkspace({
                 onClick={() => handleAutoLayoutTopo()}
               >
                 <TreeStructureIcon className="size-4" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="Auto-layout with dagre (hierarchical edges)"
+                disabled={onCanvas.length === 0}
+                onClick={() => handleAutoLayoutDagre()}
+              >
+                <ArrowsOutIcon className="size-4" aria-hidden />
               </Button>
               <Button
                 type="button"
@@ -1280,7 +1572,7 @@ export function ModelWorkspace({
                 <DiagramSurfaceAdapter
                   isDark={isDark}
                   viewport={viewport}
-                  onViewportChange={setViewport}
+                  onViewportChange={handleViewportChange}
                   tableDisplays={tableDisplays}
                   positions={positions}
                   columnsByKey={diagramDisplayColumnsByKey}
@@ -1291,29 +1583,23 @@ export function ModelWorkspace({
                   selectedKeys={selectedKeysSet}
                   diagramTool={diagramTool}
                   onTableSelect={selectTable}
-                  onClearSelection={clearSelection}
+                  onClearSelection={() => {
+                    clearSelection()
+                    setSelectedEdge(null)
+                  }}
                   onMarqueeSelect={applyMarquee}
                   onTableDragStart={handleTableDragStart}
                   onTableDragMove={handleTableDragMove}
                   onMoveTable={handleMoveTable}
                   onRequestColumns={requestColumns}
                   onConnectColumns={handleConnectColumns}
+                  canConnectColumns={canQueueForeignKey}
+                  selectedEdgeId={selectedEdge?.id ?? null}
+                  onEdgeSelect={setSelectedEdge}
                   onQuickEditColumn={(tableK, sourceColumnName, patch) => {
-                    setColumnIdentityOverridesByKey((prev) => {
-                      const tableMap = { ...(prev[tableK] ?? {}) }
-                      const nextName = patch.nextColumnName.trim()
-                      const nextType = patch.nextDataType.trim()
-                      if (!nextName || !nextType) {
-                        delete tableMap[sourceColumnName]
-                      } else {
-                        tableMap[sourceColumnName] = { nextColumnName: nextName, nextDataType: nextType }
-                      }
-                      const next = { ...prev }
-                      if (Object.keys(tableMap).length === 0) delete next[tableK]
-                      else next[tableK] = tableMap
-                      return next
-                    })
+                    applyQuickColumnEdit(tableK, sourceColumnName, patch)
                   }}
+                  editedColumnNamesByKey={editedColumnNamesByKey}
                   headerColors={resolvedHeaderColors}
                   exportRef={diagramExportRef}
                 />
@@ -1367,13 +1653,19 @@ export function ModelWorkspace({
                   })
                 }}
                 pendingForeignKeys={pendingForeignKeys}
+                selectedEdge={selectedEdge}
+                canQueueForeignKey={canQueueForeignKey}
                 onAddPendingForeignKey={(row) => {
                   const fromKey = row.fromKey ?? primaryKey
                   if (!fromKey) return
+                  if (!canQueueForeignKey({ fromKey, fromColumn: row.fromColumn, toKey: row.toKey, toColumn: row.toColumn })) {
+                    return
+                  }
+                  const id = crypto.randomUUID()
                   setPendingForeignKeys((prev) => [
                     ...prev,
                     {
-                      id: crypto.randomUUID(),
+                      id,
                       fromKey,
                       fromColumn: row.fromColumn,
                       toKey: row.toKey,
@@ -1381,9 +1673,18 @@ export function ModelWorkspace({
                       constraintName: row.constraintName,
                     },
                   ])
+                  setSelectedEdge({
+                    id,
+                    kind: 'pending',
+                    fromKey,
+                    fromColumn: row.fromColumn,
+                    toKey: row.toKey,
+                    toColumn: row.toColumn,
+                  })
                 }}
                 onRemovePendingForeignKey={(id) => {
                   setPendingForeignKeys((prev) => prev.filter((fk) => fk.id !== id))
+                  setSelectedEdge((prev) => (prev?.id === id ? null : prev))
                 }}
                 pendingRules={pendingRules.filter((row) => row.tableKey === primaryKey)}
                 onPendingRulesChange={(next) => {
@@ -1420,6 +1721,16 @@ export function ModelWorkspace({
       </Tabs>
 
       <DdlReviewDialog open={ddlOpen} onOpenChange={setDdlOpen} connectionId={connectionId} />
+      <MigrationPreviewDialog
+        open={migrationPreviewOpen}
+        onOpenChange={setMigrationPreviewOpen}
+        summary={migrationSummary}
+        isApplying={applyPending}
+        onApply={() => {
+          setMigrationPreviewOpen(false)
+          void handleApplyEntireModel()
+        }}
+      />
     </div>
   )
 }

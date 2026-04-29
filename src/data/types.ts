@@ -1,6 +1,19 @@
 /** PostgreSQL `sslmode`-style TLS (lowercase in JSON for Tauri). */
 export type ConnectionSslMode = 'disable' | 'prefer' | 'require'
 
+export type SshAuthMethod = 'keyfile' | 'password'
+
+export type SshConfig = {
+  enabled: boolean
+  host: string
+  port: number
+  user: string
+  authMethod: SshAuthMethod
+  password?: string | null
+  privateKeyPath?: string | null
+  passphrase?: string | null
+}
+
 export type ConnectionInput = {
   id?: string
   name: string
@@ -10,6 +23,7 @@ export type ConnectionInput = {
   user: string
   password: string
   sslMode: ConnectionSslMode
+  sshConfig?: SshConfig | null
 }
 
 export type ConnectionSummary = {
@@ -21,6 +35,7 @@ export type ConnectionSummary = {
   user: string
   connectedAt: string
   sslMode: ConnectionSslMode
+  sshConfig?: SshConfig | null
 }
 
 export type QueryRequest = {

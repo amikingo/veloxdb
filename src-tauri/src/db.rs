@@ -12,6 +12,7 @@ use tokio::sync::RwLock;
 use tokio_postgres::NoTls;
 
 use crate::models::{ConnectionInput, ConnectionSslMode, ConnectionSummary, StoredConnection};
+use crate::ssh_tunnel::SshTunnel;
 
 pub const CONNECTION_STORE_PATH: &str = "connections.json";
 pub const MAX_QUERY_ROWS: usize = 1000;
@@ -36,6 +37,7 @@ fn deadpool_ssl_mode(mode: ConnectionSslMode) -> DeadpoolSslMode {
 pub struct AppState {
     pub pools: RwLock<HashMap<String, Pool>>,
     pub active_connection_id: RwLock<Option<String>>,
+    pub ssh_tunnels: RwLock<HashMap<String, SshTunnel>>,
 }
 
 fn tls_connector() -> Result<tokio_postgres_rustls::MakeRustlsConnect, String> {
@@ -52,10 +54,10 @@ fn tls_connector() -> Result<tokio_postgres_rustls::MakeRustlsConnect, String> {
         .clone()
 }
 
-pub fn build_pool(input: &ConnectionInput) -> Result<Pool, String> {
+pub fn build_pool_custom(host: &str, port: u16, input: &ConnectionInput) -> Result<Pool, String> {
     let mut config = PostgresConfig::new();
-    config.host = Some(input.host.clone());
-    config.port = Some(input.port);
+    config.host = Some(host.to_string());
+    config.port = Some(port);
     config.dbname = Some(input.database.clone());
     config.user = Some(input.user.clone());
     config.password = Some(input.password.clone());
@@ -89,6 +91,10 @@ pub fn build_pool(input: &ConnectionInput) -> Result<Pool, String> {
     }
 }
 
+pub fn build_pool(input: &ConnectionInput) -> Result<Pool, String> {
+    build_pool_custom(&input.host, input.port, input)
+}
+
 /// Heuristic for transport-level failures where discarding the pool and opening
 /// a new TCP session may succeed (sleep/VPN blips, idle disconnects).
 fn is_retryable_connection_error(message: &str) -> bool {
@@ -112,6 +118,17 @@ fn is_retryable_connection_error(message: &str) -> bool {
 
 pub async fn drop_pool(state: &AppState, connection_id: &str) {
     state.pools.write().await.remove(connection_id);
+    if let Some(mut tunnel) = state.ssh_tunnels.write().await.remove(connection_id) {
+        tunnel.close().await;
+    }
+}
+
+pub async fn disconnect_connection(state: &AppState, connection_id: &str) {
+    drop_pool(state, connection_id).await;
+    let mut active = state.active_connection_id.write().await;
+    if active.as_deref() == Some(connection_id) {
+        *active = None;
+    }
 }
 
 /// Runs `operation` with a pooled client. On a retryable connection error, drops
@@ -188,16 +205,26 @@ pub async fn get_or_create_pool(
     let stored_connection = load_connection(app, connection_id)?
         .ok_or_else(|| "Stored connection details were not found.".to_string())?;
 
-    let pool = build_pool(&ConnectionInput {
-        id: Some(stored_connection.id.clone()),
-        name: stored_connection.name.clone(),
-        host: stored_connection.host.clone(),
-        port: stored_connection.port,
-        database: stored_connection.database.clone(),
-        user: stored_connection.user.clone(),
-        password: stored_connection.password.clone(),
-        ssl_mode: stored_connection.ssl_mode,
-    })?;
+    let input = stored_connection.to_input();
+
+    let (host, port) = if let Some(ref ssh_config) = input.ssh_config {
+        if ssh_config.is_active() {
+            let tunnel = SshTunnel::connect(ssh_config, &input.host, input.port).await?;
+            let local_port = tunnel.local_port;
+            state
+                .ssh_tunnels
+                .write()
+                .await
+                .insert(connection_id.to_string(), tunnel);
+            ("127.0.0.1".to_string(), local_port)
+        } else {
+            (input.host.clone(), input.port)
+        }
+    } else {
+        (input.host.clone(), input.port)
+    };
+
+    let pool = build_pool_custom(&host, port, &input)?;
 
     state
         .pools

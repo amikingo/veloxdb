@@ -7,8 +7,9 @@ use tokio_postgres::SimpleQueryMessage;
 use uuid::Uuid;
 
 use crate::db::{
-    build_pool, list_connections, load_connection, persist_connection, quote_identifier,
-    resolve_connection_id, with_pool_client_retry, AppState, MAX_QUERY_ROWS,
+    build_pool, build_pool_custom, disconnect_connection, list_connections, load_connection,
+    persist_connection, quote_identifier, resolve_connection_id, with_pool_client_retry, AppState,
+    MAX_QUERY_ROWS,
 };
 use crate::models::{
     ColumnInfo, ColumnProperties, ConnectionInput, ConnectionSummary, DdlBatchRequest,
@@ -17,6 +18,7 @@ use crate::models::{
     QueryEditorTable, SqlDiagnostic, StoredConnection, TableIndexesResult, TableInfo,
     TablePropertiesApplyRequest,
 };
+use crate::ssh_tunnel::SshTunnel;
 
 /// Cap FK rows returned to the UI to keep IPC payloads bounded.
 const MAX_FOREIGN_KEY_ROWS: i64 = 5000;
@@ -77,12 +79,38 @@ pub async fn connect_db(
         .clone()
         .unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let pool = build_pool(&input)?;
-    let client = pool.get().await.map_err(|error| error.to_string())?;
-    client
-        .simple_query("select 1")
-        .await
-        .map_err(|error| error.to_string())?;
+    let pool = if let Some(ref ssh_config) = input.ssh_config {
+        if ssh_config.is_active() {
+            let tunnel = match SshTunnel::connect(ssh_config, &input.host, input.port).await {
+                Ok(tunnel) => tunnel,
+                Err(e) => return Err(format!("SSH tunnel failed: {}", e)),
+            };
+            let local_port = tunnel.local_port;
+            state
+                .ssh_tunnels
+                .write()
+                .await
+                .insert(connection_id.clone(), tunnel);
+            build_pool_custom("127.0.0.1", local_port, &input)?
+        } else {
+            build_pool(&input)?
+        }
+    } else {
+        build_pool(&input)?
+    };
+
+    let client = match pool.get().await {
+        Ok(client) => client,
+        Err(e) => {
+            disconnect_connection(&state, &connection_id).await;
+            return Err(e.to_string());
+        }
+    };
+
+    if let Err(e) = client.simple_query("select 1").await {
+        disconnect_connection(&state, &connection_id).await;
+        return Err(e.to_string());
+    }
 
     let stored_connection = StoredConnection::from_input(connection_id.clone(), input);
     persist_connection(&app, &stored_connection)?;
@@ -124,6 +152,15 @@ pub async fn set_active_connection(
     *state.active_connection_id.write().await = Some(connection_id);
 
     Ok(stored_connection.summary())
+}
+
+#[tauri::command]
+pub async fn disconnect_db(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<(), String> {
+    disconnect_connection(&state, &connection_id).await;
+    Ok(())
 }
 
 #[tauri::command]

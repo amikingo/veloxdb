@@ -851,60 +851,63 @@ export const QueryWorkspace = forwardRef<
 						<PlusIcon />
 					</Button>
 				</div>
-				<div className="flex shrink-0 items-center gap-1.5">
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						onClick={() => setHistoryOpen(true)}
-						disabled={!activeConnectionForHistory}
-						aria-label="Open query history"
-						title="Query history"
-					>
-						<ClockCounterClockwiseIcon />
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						onClick={handleToolbarExplain}
-						disabled={toolbarBusy}
-						aria-label="Run explain analyze"
-						title="Explain (analyze)"
-					>
-						<DatabaseIcon />
-					</Button>
-					<Button
-						variant="outline"
-						size="icon-sm"
-						onClick={handleToolbarRunStatement}
-						disabled={toolbarBusy}
-						aria-label="Run current statement"
-						title="Run statement"
-					>
-						<PlugIcon />
-					</Button>
-					<Button
-						variant="default"
-						size="icon-sm"
-						onClick={handleToolbarRun}
-						disabled={toolbarBusy}
-						aria-label="Run query"
-						title="Run query (Cmd/Ctrl + Enter)"
-					>
-						<PlayIcon weight="fill" />
-					</Button>
-					<span className="ml-1 hidden text-[11px] uppercase tracking-[0.16em] text-muted-foreground md:inline">
-						Cmd/Ctrl + Enter
-					</span>
-					{editorMetadataQuery.isFetching ? (
-						<span className="hidden text-[11px] text-muted-foreground xl:inline">
-							Loading metadata...
+				<div className="flex shrink-0 items-center gap-3">
+					<div className="hidden min-h-4 min-w-[132px] items-center justify-end text-right xl:flex">
+						{editorMetadataQuery.isFetching ? (
+							<span className="text-[11px] text-muted-foreground">
+								Loading metadata...
+							</span>
+						) : lintSqlMutation.isPending ? (
+							<span className="text-[11px] text-muted-foreground">Linting...</span>
+						) : (
+							<span className="text-[11px] text-transparent select-none">Status</span>
+						)}
+					</div>
+					<div className="flex shrink-0 items-center gap-1.5">
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							onClick={() => setHistoryOpen(true)}
+							disabled={!activeConnectionForHistory}
+							aria-label="Open query history"
+							title="Query history"
+						>
+							<ClockCounterClockwiseIcon />
+						</Button>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							onClick={handleToolbarExplain}
+							disabled={toolbarBusy}
+							aria-label="Run explain analyze"
+							title="Explain (analyze)"
+						>
+							<DatabaseIcon />
+						</Button>
+						<Button
+							variant="outline"
+							size="icon-sm"
+							onClick={handleToolbarRunStatement}
+							disabled={toolbarBusy}
+							aria-label="Run current statement"
+							title="Run statement"
+						>
+							<PlugIcon />
+						</Button>
+						<Button
+							variant="default"
+							size="icon-sm"
+							onClick={handleToolbarRun}
+							disabled={toolbarBusy}
+							aria-label="Run query"
+							title="Run query (Cmd/Ctrl + Enter)"
+						>
+							<PlayIcon weight="fill" />
+						</Button>
+						<span className="ml-1 hidden text-[11px] uppercase tracking-[0.16em] text-muted-foreground md:inline">
+							Cmd/Ctrl + Enter
 						</span>
-					) : null}
-					{lintSqlMutation.isPending ? (
-						<span className="hidden text-[11px] text-muted-foreground xl:inline">
-							Linting...
-						</span>
-					) : null}
+					</div>
 				</div>
 			</div>
 

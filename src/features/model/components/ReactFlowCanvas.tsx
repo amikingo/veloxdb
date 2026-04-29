@@ -9,6 +9,7 @@ import {
   Controls,
   Handle,
   MiniMap,
+  PanOnScrollMode,
   Panel,
   type Edge,
   type IsValidConnection,
@@ -47,17 +48,18 @@ type TableNodeData = {
     sourceColumnName: string,
     patch: { nextColumnName: string; nextDataType: string },
   ) => void
+  editedColumnNames: ReadonlySet<string>
 }
 
 const MAX_ROWS = 8
-const VIEWPORT_FRAME_MS = 80
+const VIEWPORT_FRAME_MS = 24
 
 type GroupNodeData = {
   name: string
 }
 
 const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
-  const rows = data.columns?.slice(0, MAX_ROWS) ?? []
+  const rows = useMemo(() => data.columns?.slice(0, MAX_ROWS) ?? [], [data.columns])
   const moreCount = data.columns && data.columns.length > MAX_ROWS ? data.columns.length - MAX_ROWS : 0
   const height = tableNodeHeight(data.columns ?? null, data.columnDetail)
   const headerFill = data.headerFill ?? 'var(--diagram-table-header)'
@@ -203,7 +205,14 @@ const TableFlowNode = memo(({ data }: { data: TableNodeData }) => {
                 </div>
               ) : (
                 <>
-                  <span className="truncate">{c.columnName}</span>
+                  <span className="truncate">
+                    {c.columnName}
+                    {data.editedColumnNames.has(c.columnName) ? (
+                      <span className="ml-1 rounded bg-primary/15 px-1 py-0.5 text-[9px] font-semibold text-primary">
+                        edited
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="max-w-24 truncate text-muted-foreground">{c.dataType}</span>
                 </>
               )}
@@ -247,8 +256,12 @@ export function ReactFlowCanvas({
   onMoveTable,
   onRequestColumns,
   onConnectColumns,
+  canConnectColumns,
+  selectedEdgeId = null,
+  onEdgeSelect,
   onQuickEditColumn,
   headerColors = {},
+  editedColumnNamesByKey = {},
   pendingForeignKeys = [],
   columnDetail = 'full',
   diagramGroups = [],
@@ -302,10 +315,11 @@ export function ReactFlowCanvas({
           onSelect: onTableSelect,
           onRequestColumns,
           onQuickEditColumn,
+          editedColumnNames: editedColumnNamesByKey[t.key] ?? new Set<string>(),
         },
       }
     })
-  }, [columnDetail, columnsByKey, diagramTool, headerColors, onQuickEditColumn, onRequestColumns, onTableSelect, positions, selectedKeys, tableDisplays])
+  }, [columnDetail, columnsByKey, diagramTool, editedColumnNamesByKey, headerColors, onQuickEditColumn, onRequestColumns, onTableSelect, positions, selectedKeys, tableDisplays])
 
   const groupNodes = useMemo<Node<GroupNodeData>[]>(() => {
     if (!diagramGroups.length) return []
@@ -337,24 +351,40 @@ export function ReactFlowCanvas({
   )
 
   const edges = useMemo<Edge[]>(() => {
-    const mk = (kind: 'committed' | 'pending', edge: (typeof routed.committed)[number]): Edge => ({
-      id: edge.id,
-      type: 'smoothstep',
-      source: edge.fromKey,
-      target: edge.toKey,
-      sourceHandle: `out:${edge.fromColumn}`,
-      targetHandle: `in:${edge.toColumn}`,
-      markerEnd: { type: MarkerType.ArrowClosed, color: kind === 'pending' ? palette.edgePending : palette.edge },
-      animated: kind === 'pending',
-      style: {
-        stroke: kind === 'pending' ? palette.edgePending : palette.edge,
-        strokeWidth: kind === 'pending' ? 2 : 1.5,
-        strokeDasharray: kind === 'pending' ? '8 5' : undefined,
-      },
-      selectable: false,
-    })
+    const mk = (kind: 'committed' | 'pending', edge: (typeof routed.committed)[number]): Edge => {
+      const label = kind === 'pending' && edge.label ? edge.label : `${edge.fromColumn} → ${edge.toColumn}`
+      return {
+        id: edge.id,
+        type: 'smoothstep',
+        source: edge.fromKey,
+        target: edge.toKey,
+        sourceHandle: `out:${edge.fromColumn}`,
+        targetHandle: `in:${edge.toColumn}`,
+        markerEnd: { type: MarkerType.ArrowClosed, color: kind === 'pending' ? palette.edgePending : palette.edge },
+        animated: kind === 'pending',
+        label,
+        labelStyle: {
+          fill: kind === 'pending' ? palette.edgePending : palette.edge,
+          fontSize: 9,
+          fontWeight: 500,
+        },
+        labelBgStyle: {
+          fill: isDark ? 'rgba(15,15,15,0.85)' : 'rgba(255,255,255,0.85)',
+          fillOpacity: 1,
+        },
+        labelBgPadding: [4, 2] as [number, number],
+        labelBgBorderRadius: 3,
+        style: {
+          stroke: kind === 'pending' ? palette.edgePending : palette.edge,
+          strokeWidth: selectedEdgeId === edge.id ? 3 : kind === 'pending' ? 2 : 1.5,
+          strokeDasharray: kind === 'pending' ? '8 5' : undefined,
+        },
+        selectable: true,
+        selected: selectedEdgeId === edge.id,
+      }
+    }
     return [...routed.committed.map((e) => mk('committed', e)), ...routed.pending.map((e) => mk('pending', e))]
-  }, [palette.edge, palette.edgePending, routed])
+  }, [isDark, palette.edge, palette.edgePending, routed, selectedEdgeId])
 
   const handleConnect = useCallback(
     (connection: { source: string | null; target: string | null; sourceHandle: string | null; targetHandle: string | null }) => {
@@ -363,9 +393,10 @@ export function ReactFlowCanvas({
       const fromColumn = connection.sourceHandle?.replace(/^out:/, '')
       const toColumn = connection.targetHandle?.replace(/^in:/, '')
       if (!fromKey || !toKey || !fromColumn || !toColumn || !onConnectColumns) return
+      if (canConnectColumns && !canConnectColumns({ fromKey, fromColumn, toKey, toColumn })) return
       onConnectColumns(fromKey, fromColumn, toKey, toColumn)
     },
-    [onConnectColumns],
+    [canConnectColumns, onConnectColumns],
   )
 
   const isValidConnection = useCallback<IsValidConnection>(
@@ -375,29 +406,9 @@ export function ReactFlowCanvas({
       const fromColumn = connection.sourceHandle?.replace(/^out:/, '')
       const toColumn = connection.targetHandle?.replace(/^in:/, '')
       if (!fromKey || !toKey || !fromColumn || !toColumn) return false
-      if (fromKey === toKey && fromColumn === toColumn) return false
-
-      const duplicateCommitted = foreignKeys.some(
-        (fk) =>
-          fk.fromSchema === fromKey.split('.')[0] &&
-          fk.fromTable === fromKey.split('.')[1] &&
-          fk.fromColumn === fromColumn &&
-          fk.toSchema === toKey.split('.')[0] &&
-          fk.toTable === toKey.split('.')[1] &&
-          fk.toColumn === toColumn,
-      )
-      if (duplicateCommitted) return false
-
-      const duplicatePending = pendingForeignKeys.some(
-        (fk) =>
-          fk.fromKey === fromKey &&
-          fk.fromColumn === fromColumn &&
-          fk.toKey === toKey &&
-          fk.toColumn === toColumn,
-      )
-      return !duplicatePending
+      return canConnectColumns ? canConnectColumns({ fromKey, fromColumn, toKey, toColumn }) : true
     },
-    [foreignKeys, pendingForeignKeys],
+    [canConnectColumns],
   )
 
   const handleMove = useCallback(
@@ -413,6 +424,13 @@ export function ReactFlowCanvas({
       const now = performance.now()
       if (now - lastViewportEmitRef.current < VIEWPORT_FRAME_MS) return
       lastViewportEmitRef.current = now
+      onViewportChange({ x: vp.x, y: vp.y, scale: vp.zoom })
+    },
+    [onViewportChange],
+  )
+
+  const handleMoveEnd = useCallback(
+    (_: MouseEvent | TouchEvent | null, vp: { x: number; y: number; zoom: number }) => {
       onViewportChange({ x: vp.x, y: vp.y, scale: vp.zoom })
     },
     [onViewportChange],
@@ -514,8 +532,15 @@ export function ReactFlowCanvas({
         minZoom={0.15}
         maxZoom={2.5}
         translateExtent={[[-8000, -8000], [8000, 8000]]}
-        panOnDrag={diagramTool === 'pan' || spaceHeld}
-        selectionOnDrag={diagramTool === 'select'}
+        panOnDrag={diagramTool === 'pan' || spaceHeld ? true : [1]}
+        panOnScroll={diagramTool !== 'connect'}
+        panOnScrollMode={PanOnScrollMode.Free}
+        panOnScrollSpeed={0.9}
+        zoomOnScroll={true}
+        zoomActivationKeyCode={['Meta', 'Control']}
+        zoomOnPinch={true}
+        zoomOnDoubleClick={false}
+        selectionOnDrag={diagramTool === 'select' && !spaceHeld}
         elementsSelectable={diagramTool === 'select'}
         nodesConnectable={diagramTool === 'connect'}
         onInit={(instance) => {
@@ -523,10 +548,33 @@ export function ReactFlowCanvas({
           instance.setViewport({ x: viewport.x, y: viewport.y, zoom: viewport.scale }, { duration: 0 })
         }}
         onMove={handleMove}
-        onMoveEnd={handleMove}
+        onMoveEnd={handleMoveEnd}
         onPaneClick={onClearSelection}
+        onPaneContextMenu={() => onEdgeSelect?.(null)}
         onSelectionChange={({ nodes: selectedNodes }) => onMarqueeSelect(selectedNodes.map((n) => n.id as TableKey), false)}
         onNodeClick={(evt, node) => onTableSelect(node.id as TableKey, evt.shiftKey)}
+        onEdgeClick={(evt, edge) => {
+          evt.preventDefault()
+          onEdgeSelect?.(
+            routed.pending.some((row) => row.id === edge.id)
+              ? {
+                  id: edge.id,
+                  kind: 'pending',
+                  fromKey: edge.source as TableKey,
+                  fromColumn: (edge.sourceHandle ?? '').replace(/^out:/, ''),
+                  toKey: edge.target as TableKey,
+                  toColumn: (edge.targetHandle ?? '').replace(/^in:/, ''),
+                }
+              : {
+                  id: edge.id,
+                  kind: 'committed',
+                  fromKey: edge.source as TableKey,
+                  fromColumn: (edge.sourceHandle ?? '').replace(/^out:/, ''),
+                  toKey: edge.target as TableKey,
+                  toColumn: (edge.targetHandle ?? '').replace(/^in:/, ''),
+                },
+          )
+        }}
         onNodeDragStart={(_, node) => onTableDragStart?.(node.id as TableKey)}
         onNodeDrag={(_, node) => onTableDragMove?.(node.id as TableKey, node.position.x, node.position.y)}
         onNodeDragStop={(_, node) => onMoveTable(node.id as TableKey, node.position.x, node.position.y)}
@@ -563,8 +611,8 @@ export function ReactFlowCanvas({
         </Controls>
         <Panel position="bottom-left" className="rounded border border-border bg-background/80 px-2 py-1 text-[10px] text-muted-foreground">
           {diagramTool === 'connect' ? 'Connect mode: drag from source to target column handles.' : null}
-          {diagramTool === 'pan' ? 'Pan mode: drag canvas. Hold Space in any mode to temporarily pan.' : null}
-          {diagramTool === 'select' ? 'Select mode: click/shift-click tables, drag to move selection.' : null}
+          {diagramTool === 'pan' ? 'Pan mode: drag or wheel pan. Hold Space in any mode to temporarily pan.' : null}
+          {diagramTool === 'select' ? 'Select mode: click/shift-click tables, drag selection. Wheel pans; Cmd/Ctrl + wheel zooms.' : null}
         </Panel>
       </ReactFlow>
     </div>

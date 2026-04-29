@@ -15,6 +15,7 @@ import type {
   PendingModelTrigger,
   TableIdentityDraft,
 } from '@/features/model/apply-entire-model'
+import type { DiagramEdgeSelection } from '@/features/model/components/diagram-surface-types'
 import { tableKey, type TableKey } from '@/features/model/model-types'
 import { IndexInspectorSection } from '@/features/model/components/IndexInspectorSection'
 import { RuleInspectorSection } from '@/features/model/components/RuleInspectorSection'
@@ -30,6 +31,13 @@ type PendingFkInput = {
   toKey: TableKey
   toColumn: string
   constraintName?: string
+}
+
+type RelationshipValidationInput = {
+  fromKey: TableKey
+  fromColumn: string
+  toKey: TableKey
+  toColumn: string
 }
 
 type ModelInspectorProps = {
@@ -51,6 +59,8 @@ type ModelInspectorProps = {
   pendingAddColumns: PendingModelColumn[]
   onPendingAddColumnsChange: (next: PendingModelColumn[]) => void
   pendingForeignKeys: PendingModelForeignKey[]
+  selectedEdge: DiagramEdgeSelection | null
+  canQueueForeignKey: (input: RelationshipValidationInput) => boolean
   onAddPendingForeignKey: (row: PendingFkInput) => void
   onRemovePendingForeignKey: (id: string) => void
   pendingRules: PendingModelRule[]
@@ -121,6 +131,8 @@ export function ModelInspector({
   pendingAddColumns,
   onPendingAddColumnsChange,
   pendingForeignKeys,
+  selectedEdge,
+  canQueueForeignKey,
   onAddPendingForeignKey,
   onRemovePendingForeignKey,
   pendingRules,
@@ -211,7 +223,7 @@ export function ModelInspector({
 
   const pushPendingFk = () => {
     if (!tableKeyStr || !fkFromColumn || !fkToKey || !fkToColumn) return
-    if (fkToKey === tableKeyStr) return
+    if (!canQueueForeignKey({ fromKey: tableKeyStr, fromColumn: fkFromColumn, toKey: fkToKey, toColumn: fkToColumn })) return
     onAddPendingForeignKey({
       fromKey: tableKeyStr,
       fromColumn: fkFromColumn,
@@ -224,6 +236,11 @@ export function ModelInspector({
     setFkToColumn('')
     setFkConstraintName('')
   }
+
+  const selectedEdgePendingRow = useMemo(() => {
+    if (!selectedEdge || selectedEdge.kind !== 'pending') return null
+    return pendingForeignKeys.find((fk) => fk.id === selectedEdge.id) ?? null
+  }, [pendingForeignKeys, selectedEdge])
 
   if (!table || !identityDraft) {
     return (
@@ -543,6 +560,50 @@ export function ModelInspector({
           </div>
 
           <div className="mb-4 space-y-2 border-b border-border pb-4">
+            {selectedEdge ? (
+              <div className="rounded-md border border-border/70 bg-muted/20 px-2.5 py-2">
+                <p className="text-[10px] font-medium text-muted-foreground">Selected relationship</p>
+                <p className="mt-1 break-all text-[11px] text-foreground/90">
+                  {selectedEdge.fromKey}.{selectedEdge.fromColumn} → {selectedEdge.toKey}.{selectedEdge.toColumn}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  {selectedEdge.kind === 'pending'
+                    ? 'Pending relationship (editable/removable).'
+                    : 'Committed relationship (read-only for now).'}
+                </p>
+                {selectedEdge.kind === 'pending' && selectedEdgePendingRow ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px]"
+                      onClick={() => {
+                        setFkFromColumn(selectedEdgePendingRow.fromColumn)
+                        setFkToKey(selectedEdgePendingRow.toKey)
+                        setFkToColumn(selectedEdgePendingRow.toColumn)
+                        setFkConstraintName(selectedEdgePendingRow.constraintName ?? '')
+                        onRemovePendingForeignKey(selectedEdgePendingRow.id)
+                      }}
+                    >
+                      Edit selected relationship
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-[10px]"
+                      onClick={() => onRemovePendingForeignKey(selectedEdgePendingRow.id)}
+                    >
+                      Delete selected relationship
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mb-4 space-y-2 border-b border-border pb-4">
             <p className="text-[10px] font-medium text-muted-foreground">Add foreign key</p>
             <p className="text-[10px] leading-snug text-muted-foreground">
               Single-column FK as{' '}
@@ -620,7 +681,18 @@ export function ModelInspector({
                 type="button"
                 size="sm"
                 className="h-8 w-full text-xs"
-                disabled={!fkFromColumn || !fkToKey || !fkToColumn || fkToKey === tableKeyStr}
+                disabled={
+                  !fkFromColumn ||
+                  !fkToKey ||
+                  !fkToColumn ||
+                  !tableKeyStr ||
+                  !canQueueForeignKey({
+                    fromKey: tableKeyStr,
+                    fromColumn: fkFromColumn,
+                    toKey: fkToKey,
+                    toColumn: fkToColumn,
+                  })
+                }
                 onClick={pushPendingFk}
               >
                 Queue foreign key
