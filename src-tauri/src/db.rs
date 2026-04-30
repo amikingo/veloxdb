@@ -126,9 +126,6 @@ pub async fn drop_pool(state: &AppState, connection_id: &str) {
 
 pub async fn disconnect_connection(state: &AppState, connection_id: &str) {
     drop_pool(state, connection_id).await;
-    if let Err(e) = credentials::delete_password(connection_id) {
-        log::warn!("Failed to delete keychain entry for {}: {}", connection_id, e);
-    }
     let mut active = state.active_connection_id.write().await;
     if active.as_deref() == Some(connection_id) {
         *active = None;
@@ -275,6 +272,8 @@ pub fn persist_connection(app: &AppHandle, connection: &StoredConnection) -> Res
         serde_json::to_value(connection).map_err(|error| error.to_string())?,
     );
 
+    store.save().map_err(|error| error.to_string())?;
+
     Ok(())
 }
 
@@ -283,7 +282,9 @@ pub fn persist_connection_with_password(
     connection: &StoredConnection,
     password: &str,
 ) -> Result<(), String> {
-    persist_connection(app, connection)?;
+    let mut stored = connection.clone();
+    stored.password = Some(password.to_string());
+    persist_connection(app, &stored)?;
     credentials::store_password(&connection.id, password)?;
     Ok(())
 }
@@ -293,6 +294,7 @@ pub fn delete_connection_from_store(app: &AppHandle, connection_id: &str) -> Res
         .store(CONNECTION_STORE_PATH)
         .map_err(|error| error.to_string())?;
     store.delete(connection_id);
+    store.save().map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -313,23 +315,43 @@ pub fn load_connection(
         None => return Ok(None),
     };
 
+    let json_password = connection.password.clone();
+
     match credentials::get_password(connection_id) {
-        Ok(Some(password)) => connection.password = Some(password),
+        Ok(Some(password)) => {
+            if json_password.is_some() {
+                let clean = StoredConnection {
+                    password: None,
+                    ..connection.clone()
+                };
+                let _ = persist_connection(app, &clean);
+            }
+            connection.password = Some(password);
+        }
         Ok(None) => {
-            let json_password = connection.password.clone();
             if let Some(ref pwd) = json_password {
                 if let Err(e) = credentials::store_password(connection_id, pwd) {
                     log::warn!("Failed to migrate password to keychain for {}: {}", connection_id, e);
-                } else {
-                    connection.password = None;
-                    persist_connection(app, &connection)?;
-                    connection.password = Some(pwd.clone());
                 }
+                connection.password = Some(pwd.clone());
             } else {
-                log::warn!("No password found in keychain for connection {}", connection_id);
+                return Err(format!(
+                    "No saved password found for connection {}. Re-enter your password to reconnect.",
+                    connection.name
+                ));
             }
         }
-        Err(e) => log::warn!("Failed to read password from keychain for connection {}: {}", connection_id, e),
+        Err(e) => {
+            log::warn!("Failed to read password from keychain for {}: {}", connection_id, e);
+            if let Some(ref pwd) = json_password {
+                connection.password = Some(pwd.clone());
+            } else {
+                return Err(format!(
+                    "Failed to read saved password for connection {} (keychain error). Re-enter your password to reconnect.",
+                    connection.name
+                ));
+            }
+        }
     }
 
     Ok(Some(connection))

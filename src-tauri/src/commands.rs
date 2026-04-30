@@ -7,10 +7,11 @@ use tokio_postgres::SimpleQueryMessage;
 use uuid::Uuid;
 
 use crate::db::{
-    build_pool, build_pool_custom, disconnect_connection, list_connections, load_connection,
-    persist_connection_with_password, quote_identifier, resolve_connection_id,
-    with_pool_client_retry, AppState, MAX_QUERY_ROWS,
+    build_pool, build_pool_custom, disconnect_connection, drop_pool, list_connections,
+    load_connection, persist_connection_with_password, quote_identifier,
+    resolve_connection_id, with_pool_client_retry, AppState, MAX_QUERY_ROWS,
 };
+use crate::credentials;
 use crate::models::{
     ColumnInfo, ColumnProperties, ConnectionInput, ConnectionSummary, DdlBatchRequest,
     DdlStatementRequest, ForeignKeyEdge, IndexInfo, QueryRequest, QueryResult, SchemaRequest,
@@ -102,13 +103,13 @@ pub async fn connect_db(
     let client = match pool.get().await {
         Ok(client) => client,
         Err(e) => {
-            disconnect_connection(&state, &connection_id).await;
+            drop_pool(&state, &connection_id).await;
             return Err(e.to_string());
         }
     };
 
     if let Err(e) = client.simple_query("select 1").await {
-        disconnect_connection(&state, &connection_id).await;
+        drop_pool(&state, &connection_id).await;
         return Err(e.to_string());
     }
 
@@ -186,6 +187,9 @@ pub async fn delete_connection(
     connection_id: String,
 ) -> Result<(), String> {
     disconnect_connection(&state, &connection_id).await;
+    if let Err(e) = credentials::delete_password(&connection_id) {
+        log::warn!("Failed to delete keychain entry for {}: {}", connection_id, e);
+    }
     crate::db::delete_connection_from_store(&app, &connection_id)?;
     Ok(())
 }
