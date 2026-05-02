@@ -82,13 +82,18 @@ Watch the demo: **[veloxdb.com](https://veloxdb.com)**
 
 Download the latest release from the **[Releases page](https://github.com/abeni16/veloxdb/releases)**.
 
+**macOS (Apple Silicon):** [Download DMG](https://github.com/abeni16/veloxdb/releases/download/v0.1.0-beta.1/veloxdb_0.1.0-beta.1_aarch64.dmg)
+
 | Platform | Package |
 |----------|---------|
 | macOS | `.dmg` (Apple Silicon) |
 | Linux | `.AppImage` / `.deb` |
 | Windows | `.msi` / `.exe` |
 
-> **macOS note:** VeloxDB is not notarized yet. Open with `Right-click > Open` on first launch.
+> **macOS note:** VeloxDB is not notarized yet. After installing, run this command to remove the quarantine flag:
+> ```bash
+> xattr -cr /Applications/veloxdb.app
+> ```
 
 ### From Source
 
