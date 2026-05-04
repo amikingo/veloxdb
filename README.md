@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://veloxdb.com/logo-dark.png">
-    <img alt="VeloxDB" src="https://veloxdb.com/logo-light.png" width="520">
+    <img alt="VeloxDB" src="https://veloxdb.dev/logo-light.png" width="520">
   </picture>
 </p>
 
