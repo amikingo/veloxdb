@@ -95,7 +95,6 @@ type QueryWorkspaceProps = {
 	isResultSingleTableEditable: boolean;
 	saveResultEditsMutation: SaveMutation;
 	onSaveResultEdits: (patches: ResultEditPatch[]) => Promise<void>;
-	onDeleteRows?: (primaryKeys: Record<string, string | null>[]) => Promise<void>;
 	onFocusedTabCapabilitiesChange?: (caps: {
 		hasLastQuery: boolean;
 		hasResult: boolean;
@@ -168,7 +167,6 @@ type QueryPaneProps = {
 	primaryKeyColumns: string[];
 	saveResultEditsMutation: SaveMutation;
 	onSaveResultEdits: (patches: ResultEditPatch[]) => Promise<void>;
-	onDeleteRows?: (primaryKeys: Record<string, string | null>[]) => Promise<void>;
 	onRefreshResults: () => void;
 	onRefreshPlan: () => void;
 	connectionError: unknown;
@@ -201,9 +199,8 @@ function QueryPane({
 	editableColumns,
 	primaryKeyColumns,
 	saveResultEditsMutation,
-	onSaveResultEdits,
-	onDeleteRows,
-	onRefreshResults,
+  onSaveResultEdits,
+  onRefreshResults,
 	onRefreshPlan,
 	connectionError,
 	connectionErrorMessage,
@@ -422,7 +419,6 @@ export const QueryWorkspace = forwardRef<
 		isResultSingleTableEditable,
 		saveResultEditsMutation,
 		onSaveResultEdits,
-		onDeleteRows,
 		onFocusedTabCapabilitiesChange,
 		onActivateConnectionForTab,
 		onOpenAddRow,

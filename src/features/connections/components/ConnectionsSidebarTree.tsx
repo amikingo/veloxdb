@@ -26,7 +26,7 @@ import type { ConnectionSummary, TableInfo } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { TreeView, type TreeDataItem, type TreeRenderItemParams } from '@/components/ui/tree-view'
+import { TreeView, type TreeDataItem } from '@/components/ui/tree-view'
 import type { TableQuickSqlAction } from '@/features/queries/table-quick-actions'
 import { useTableSchemaQuery } from '@/features/schema/queries'
 import { useConnectionHealth } from '@/features/connections/use-connection-health'
@@ -135,12 +135,6 @@ function isConnectionContextMenuTarget(
   return target.kind === 'connection'
 }
 
-function isTableContextMenuTarget(
-  target: SidebarContextMenuTarget,
-): target is TableContextMenuTarget {
-  return target.kind === 'table'
-}
-
 type ConnectionsSidebarTreeProps = {
   activeConnection: ConnectionSummary | null
   connections: ConnectionSummary[]
@@ -200,7 +194,7 @@ const TableTreeItem = memo(function TableTreeItem({
   onToggleExpanded,
   onOpenContextMenu,
 }: TableTreeItemProps) {
-  const schemaQuery = useTableSchemaQuery(connectionId, table, isExpanded)
+  const schemaQuery = useTableSchemaQuery({ connectionId, table, enabled: isExpanded })
 
   const errorMessage = schemaQuery.error instanceof Error ? schemaQuery.error.message : 'Failed to load fields'
 

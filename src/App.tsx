@@ -34,7 +34,7 @@ import {
 	QueryWorkspace,
 	type QueryWorkspaceHandle,
 } from "@/features/queries/components/QueryWorkspace";
-import { useSaveResultEditsMutation, useDeleteRowsMutation } from "@/features/queries/queries";
+import { useSaveResultEditsMutation } from "@/features/queries/queries";
 import { notifyError, notifySuccess } from "@/lib/error-notifier";
 import { useSettings, resolveTheme } from "@/lib/settings";
 import {
@@ -268,15 +268,6 @@ function VeloxApp() {
 			});
 		},
 	});
-	const deleteRowsMutation = useDeleteRowsMutation({
-		onError: (error) => {
-			notifyError(error, {
-				category: "query",
-				title: "Failed to delete rows",
-			});
-		},
-	});
-
 	const connectionsErrorMessage =
 		connectionsQuery.error instanceof Error
 			? connectionsQuery.error.message
@@ -599,21 +590,6 @@ function VeloxApp() {
 		queryWorkspaceRef.current?.refreshFocusedResults();
 	};
 
-	const handleDeleteRows = async (
-		primaryKeys: Record<string, string | null>[],
-	) => {
-		if (!selectedTable || !connection?.id || primaryKeys.length === 0) {
-			return;
-		}
-
-		await deleteRowsMutation.mutateAsync({
-			connectionId: connection.id,
-			table: selectedTable,
-			primaryKeys,
-		});
-
-		queryWorkspaceRef.current?.refreshFocusedResults();
-	};
 
 	return (
 		<div
