@@ -74,6 +74,8 @@ function inferCategoryFromMessage(m: string): AppErrorCategory | undefined {
 		lower.includes("syntax error") ||
 		(lower.includes("relation") && lower.includes("does not exist")) ||
 		(lower.includes("column") && lower.includes("does not exist")) ||
+		lower.includes("decode error") ||
+		lower.includes("unsupported value type") ||
 		lower.includes("permission denied") ||
 		lower.includes("duplicate key") ||
 		lower.includes("violates") ||

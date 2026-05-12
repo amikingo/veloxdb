@@ -496,7 +496,9 @@ export function ConnectionsSidebarTree({
         switch (action) {
           case 'copyConnectionString':
             void navigator.clipboard.writeText(
-              `postgresql://${connection.user}@${connection.host}:${connection.port}/${connection.database}`,
+              connection.engine === 'sqlite'
+                ? `sqlite://${connection.filePath ?? connection.database}`
+                : `${connection.engine === 'mysql' ? 'mysql' : 'postgresql'}://${connection.user}@${connection.host}:${connection.port}/${connection.database}`,
             )
             break
           case 'refreshConnection':

@@ -498,9 +498,11 @@ function VeloxApp() {
 
 	const handleCopyConnectionString = useCallback(
 		(target: ConnectionSummary) => {
-			void navigator.clipboard.writeText(
-				`postgresql://${target.user}@${target.host}:${target.port}/${target.database}`,
-			);
+			const value =
+				target.engine === "sqlite"
+					? `sqlite://${target.filePath ?? target.database}`
+					: `${target.engine === "mysql" ? "mysql" : "postgresql"}://${target.user}@${target.host}:${target.port}/${target.database}`;
+			void navigator.clipboard.writeText(value);
 		},
 		[],
 	);

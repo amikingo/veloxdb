@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import type { ConnectionInput, SshAuthMethod } from '@/data/types'
+import type { ConnectionInput, DatabaseEngine, SshAuthMethod } from '@/data/types'
 import { cn } from '@/lib/utils'
 import { parseConnectionString, buildConnectionString } from '@/lib/connection-string'
 
@@ -23,11 +23,13 @@ const sshAuthMethodSchema = z.enum(['keyfile', 'password'])
 const connectionSchema = z
   .object({
     name: z.string().min(2, 'Enter a connection name.'),
-    host: z.string().min(1, 'Host is required.'),
+    engine: z.enum(['postgres', 'mysql', 'sqlite']),
+    host: z.string(),
     port: z.coerce.number().int().min(1).max(65535),
-    database: z.string().min(1, 'Database is required.'),
-    user: z.string().min(1, 'User is required.'),
-    password: z.string().min(1, 'Password is required.'),
+    database: z.string(),
+    filePath: z.string().optional(),
+    user: z.string(),
+    password: z.string(),
     sslMode: sslModeSchema,
     sshEnabled: z.boolean(),
     sshHost: z.string().optional(),
@@ -39,6 +41,46 @@ const connectionSchema = z
     sshPassphrase: z.string().optional(),
   })
   .superRefine((values, ctx) => {
+    if (values.engine !== 'sqlite') {
+      if (!values.host || values.host.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Host is required.',
+          path: ['host'],
+        })
+      }
+      if (!values.database || values.database.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Database is required.',
+          path: ['database'],
+        })
+      }
+      if (!values.user || values.user.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'User is required.',
+          path: ['user'],
+        })
+      }
+      if (!values.password || values.password.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Password is required.',
+          path: ['password'],
+        })
+      }
+    }
+    if (values.engine === 'sqlite') {
+      if (!values.filePath || values.filePath.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'SQLite file path is required.',
+          path: ['filePath'],
+        })
+      }
+      return
+    }
     if (!values.sshEnabled) return
     if (!values.sshHost || values.sshHost.trim().length === 0) {
       ctx.addIssue({
@@ -114,9 +156,11 @@ export function ConnectionDialog({
   const defaultValues = useMemo(
     () => ({
       name: 'Local Postgres',
+      engine: 'postgres' as DatabaseEngine,
       host: '127.0.0.1',
       port: 5432,
       database: 'postgres',
+      filePath: '',
       user: 'postgres',
       password: '',
       sslMode: 'prefer' as const,
@@ -139,6 +183,7 @@ export function ConnectionDialog({
 
   const sshEnabled = useWatch({ control: form.control, name: 'sshEnabled' })
   const sshAuthMethod = useWatch({ control: form.control, name: 'sshAuthMethod' })
+  const engine = useWatch({ control: form.control, name: 'engine' })
 
   const [inputMode, setInputMode] = useState<InputMode>('fields')
   const [connString, setConnString] = useState('')
@@ -173,9 +218,11 @@ export function ConnectionDialog({
     form.setValue('host', parsed.host)
     form.setValue('port', parsed.port)
     form.setValue('database', parsed.database)
+    form.setValue('filePath', parsed.filePath ?? '')
     form.setValue('user', parsed.user)
     form.setValue('password', parsed.password)
     form.setValue('sslMode', parsed.sslMode)
+    form.setValue('engine', parsed.engine)
 
     const extra = parsed.extraParams
     if (extra) {
@@ -224,6 +271,7 @@ export function ConnectionDialog({
 
     const cs = buildConnectionString({
       ...parsed,
+      engine: parsed.engine,
       sslMode: parsed.sslMode,
       extraParams: extra,
     })
@@ -234,11 +282,13 @@ export function ConnectionDialog({
     if (mode === 'string') {
       const fields = form.getValues()
       const cs = buildConnectionString({
+        engine: fields.engine || 'postgres',
         user: fields.user || 'postgres',
         password: fields.password || '',
         host: fields.host || '127.0.0.1',
         port: Number(fields.port) || 5432,
         database: fields.database || 'postgres',
+        filePath: fields.filePath || '',
         sslMode: fields.sslMode || 'prefer',
         extraParams: collectExtraParams(),
       })
@@ -268,20 +318,23 @@ export function ConnectionDialog({
     const extraParams = collectExtraParams()
     const input: ConnectionInput = {
       name: values.name,
-      host: values.host,
-      port: values.port,
-      database: values.database,
-      user: values.user,
-      password: values.password,
-      sslMode: values.sslMode,
-      extraParams: Object.keys(extraParams).length > 0 ? extraParams : null,
-      sshConfig: values.sshEnabled
+      engine: values.engine,
+      host: values.engine === 'sqlite' ? '' : values.host,
+      port: values.engine === 'sqlite' ? 1 : values.port,
+      database: values.engine === 'sqlite' ? (values.filePath || ':memory:') : values.database,
+      filePath: values.filePath || null,
+      user: values.engine === 'sqlite' ? '' : values.user,
+      password: values.engine === 'sqlite' ? '' : values.password,
+      sslMode: values.engine === 'postgres' ? values.sslMode : 'disable',
+      extraParams:
+        values.engine === 'postgres' && Object.keys(extraParams).length > 0 ? extraParams : null,
+      sshConfig: values.engine !== 'sqlite' && values.sshEnabled
         ? {
             enabled: true,
-            host: values.sshHost!,
-            port: values.sshPort!,
-            user: values.sshUser!,
-            authMethod: values.sshAuthMethod!,
+            host: values.sshHost ?? '',
+            port: values.sshPort ?? 22,
+            user: values.sshUser ?? '',
+            authMethod: values.sshAuthMethod ?? 'keyfile',
             password: values.sshPassword || null,
             privateKeyPath: values.sshPrivateKeyPath || null,
             passphrase: values.sshPassphrase || null,
@@ -372,6 +425,22 @@ export function ConnectionDialog({
 
           <div className={cn('grid gap-4 sm:grid-cols-2', inputMode === 'string' && 'hidden')}>
             <Field
+              label="Database engine"
+              inputId="veloxdb-connection-engine"
+              error={form.formState.errors.engine?.message}
+            >
+              <select
+                id="veloxdb-connection-engine"
+                className={selectClassName}
+                {...form.register('engine')}
+              >
+                <option value="postgres">PostgreSQL</option>
+                <option value="mysql">MySQL</option>
+                <option value="sqlite">SQLite</option>
+              </select>
+            </Field>
+
+            <Field
               label="Connection name"
               inputId="veloxdb-connection-name"
               error={form.formState.errors.name?.message}
@@ -383,71 +452,90 @@ export function ConnectionDialog({
               />
             </Field>
 
-            <Field
-              label="Host"
-              inputId="veloxdb-connection-host"
-              error={form.formState.errors.host?.message}
-            >
-              <Input
-                id="veloxdb-connection-host"
-                {...form.register('host')}
-                placeholder="127.0.0.1"
-              />
-            </Field>
+            {engine !== 'sqlite' ? (
+              <>
+                <Field
+                  label="Host"
+                  inputId="veloxdb-connection-host"
+                  error={form.formState.errors.host?.message}
+                >
+                  <Input
+                    id="veloxdb-connection-host"
+                    {...form.register('host')}
+                    placeholder="127.0.0.1"
+                  />
+                </Field>
 
-            <Field
-              label="Port"
-              inputId="veloxdb-connection-port"
-              error={form.formState.errors.port?.message}
-            >
-              <Input id="veloxdb-connection-port" {...form.register('port')} inputMode="numeric" />
-            </Field>
+                <Field
+                  label="Port"
+                  inputId="veloxdb-connection-port"
+                  error={form.formState.errors.port?.message}
+                >
+                  <Input id="veloxdb-connection-port" {...form.register('port')} inputMode="numeric" />
+                </Field>
 
-            <Field
-              label="Database"
-              inputId="veloxdb-connection-database"
-              error={form.formState.errors.database?.message}
-            >
-              <Input
-                id="veloxdb-connection-database"
-                {...form.register('database')}
-                placeholder="postgres"
-              />
-            </Field>
+                <Field
+                  label="Database"
+                  inputId="veloxdb-connection-database"
+                  error={form.formState.errors.database?.message}
+                >
+                  <Input
+                    id="veloxdb-connection-database"
+                    {...form.register('database')}
+                    placeholder={engine === 'mysql' ? 'my_database' : 'postgres'}
+                  />
+                </Field>
 
-            <Field
-              label="User"
-              inputId="veloxdb-connection-user"
-              error={form.formState.errors.user?.message}
-            >
-              <Input id="veloxdb-connection-user" {...form.register('user')} placeholder="postgres" />
-            </Field>
+                <Field
+                  label="User"
+                  inputId="veloxdb-connection-user"
+                  error={form.formState.errors.user?.message}
+                >
+                  <Input id="veloxdb-connection-user" {...form.register('user')} placeholder="root" />
+                </Field>
 
-            <Field
-              label="Password"
-              inputId="veloxdb-connection-password"
-              error={form.formState.errors.password?.message}
-            >
-              <Input id="veloxdb-connection-password" {...form.register('password')} type="password" />
-            </Field>
-
-            <Field
-              label="SSL mode"
-              inputId="veloxdb-connection-ssl-mode"
-              error={form.formState.errors.sslMode?.message}
-            >
-              <select
-                id="veloxdb-connection-ssl-mode"
-                className={selectClassName}
-                {...form.register('sslMode')}
+                <Field
+                  label="Password"
+                  inputId="veloxdb-connection-password"
+                  error={form.formState.errors.password?.message}
+                >
+                  <Input id="veloxdb-connection-password" {...form.register('password')} type="password" />
+                </Field>
+              </>
+            ) : (
+              <Field
+                label="SQLite file path"
+                inputId="veloxdb-connection-file-path"
+                error={form.formState.errors.filePath?.message}
               >
-                <option value="disable">Disable (plain TCP)</option>
-                <option value="prefer">Prefer (try TLS; local Postgres)</option>
-                <option value="require">Require (Neon, hosted Postgres)</option>
-              </select>
-            </Field>
+                <Input
+                  id="veloxdb-connection-file-path"
+                  {...form.register('filePath')}
+                  placeholder="/absolute/path/to/database.db or :memory:"
+                />
+              </Field>
+            )}
+
+            {engine === 'postgres' && (
+              <Field
+                label="SSL mode"
+                inputId="veloxdb-connection-ssl-mode"
+                error={form.formState.errors.sslMode?.message}
+              >
+                <select
+                  id="veloxdb-connection-ssl-mode"
+                  className={selectClassName}
+                  {...form.register('sslMode')}
+                >
+                  <option value="disable">Disable (plain TCP)</option>
+                  <option value="prefer">Prefer (try TLS; local Postgres)</option>
+                  <option value="require">Require (Neon, hosted Postgres)</option>
+                </select>
+              </Field>
+            )}
           </div>
 
+          {engine !== 'sqlite' && (
           <div className="border-t border-border pt-4">
             <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-foreground">
               <input
@@ -463,8 +551,9 @@ export function ConnectionDialog({
               <code className="rounded bg-muted px-1 py-px text-[11px]">sshpass</code> installed.
             </p>
           </div>
+          )}
 
-          {sshEnabled && (
+          {engine !== 'sqlite' && sshEnabled && (
             <div className="grid gap-4 sm:grid-cols-2">
               <Field
                 label="SSH host"
@@ -564,6 +653,7 @@ export function ConnectionDialog({
             </div>
           )}
 
+          {engine === 'postgres' && (
           <div className="border-t border-border pt-4">
             <button
               type="button"
@@ -575,6 +665,7 @@ export function ConnectionDialog({
                 width="14"
                 height="14"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
@@ -593,7 +684,7 @@ export function ConnectionDialog({
             {advancedOpen && (
               <div className="mt-4 space-y-4 pl-6">
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <label className="space-y-1.5 text-xs text-muted-foreground">
+                  <div className="space-y-1.5 text-xs text-muted-foreground">
                     <span className="block">Connect timeout</span>
                     <Input
                       value={advancedConnectTimeout}
@@ -601,18 +692,18 @@ export function ConnectionDialog({
                       placeholder="12"
                       inputMode="numeric"
                     />
-                  </label>
+                  </div>
 
-                  <label className="space-y-1.5 text-xs text-muted-foreground">
+                  <div className="space-y-1.5 text-xs text-muted-foreground">
                     <span className="block">Application name</span>
                     <Input
                       value={advancedAppName}
                       onChange={(e) => setAdvancedAppName(e.target.value)}
                       placeholder="VeloxDB"
                     />
-                  </label>
+                  </div>
 
-                  <label className="space-y-1.5 text-xs text-muted-foreground">
+                  <div className="space-y-1.5 text-xs text-muted-foreground">
                     <span className="block">Keepalives idle</span>
                     <Input
                       value={advancedKeepalivesIdle}
@@ -620,16 +711,16 @@ export function ConnectionDialog({
                       placeholder="60"
                       inputMode="numeric"
                     />
-                  </label>
+                  </div>
 
-                  <label className="space-y-1.5 text-xs text-muted-foreground col-span-full sm:col-span-2">
+                  <div className="space-y-1.5 text-xs text-muted-foreground col-span-full sm:col-span-2">
                     <span className="block">Options</span>
                     <Input
                       value={advancedOptions}
                       onChange={(e) => setAdvancedOptions(e.target.value)}
                       placeholder="-c statement_timeout=30000"
                     />
-                  </label>
+                  </div>
 
                   <label className="flex items-center gap-2 pt-7 text-xs text-muted-foreground cursor-pointer">
                     <input
@@ -647,32 +738,32 @@ export function ConnectionDialog({
                     TLS Certificates
                   </span>
                   <div className="grid gap-4 sm:grid-cols-3">
-                    <label className="space-y-1.5 text-xs text-muted-foreground">
+                    <div className="space-y-1.5 text-xs text-muted-foreground">
                       <span className="block">Root certificate</span>
                       <Input
                         value={advancedSslRootCert}
                         onChange={(e) => setAdvancedSslRootCert(e.target.value)}
                         placeholder="/path/to/ca.crt"
                       />
-                    </label>
+                    </div>
 
-                    <label className="space-y-1.5 text-xs text-muted-foreground">
+                    <div className="space-y-1.5 text-xs text-muted-foreground">
                       <span className="block">Client certificate</span>
                       <Input
                         value={advancedSslCert}
                         onChange={(e) => setAdvancedSslCert(e.target.value)}
                         placeholder="/path/to/client.crt"
                       />
-                    </label>
+                    </div>
 
-                    <label className="space-y-1.5 text-xs text-muted-foreground">
+                    <div className="space-y-1.5 text-xs text-muted-foreground">
                       <span className="block">Client key</span>
                       <Input
                         value={advancedSslKey}
                         onChange={(e) => setAdvancedSslKey(e.target.value)}
                         placeholder="/path/to/client.key"
                       />
-                    </label>
+                    </div>
                   </div>
                 </div>
 
@@ -719,6 +810,7 @@ export function ConnectionDialog({
                               width="14"
                               height="14"
                               viewBox="0 0 24 24"
+                              aria-hidden="true"
                               fill="none"
                               stroke="currentColor"
                               strokeWidth="2"
@@ -741,6 +833,7 @@ export function ConnectionDialog({
               </div>
             )}
           </div>
+          )}
 
           </div>
 
